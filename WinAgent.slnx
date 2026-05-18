@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="WinAgent.Common/WinAgent.Common.csproj" />
+  <Project Path="WinAgent.Service/WinAgent.Service.csproj" />
+  <Project Path="WinAgent.Tray/WinAgent.Tray.csproj" />
+</Solution>

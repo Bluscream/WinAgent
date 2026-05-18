@@ -3,7 +3,7 @@
   <PropertyGroup>
     <TargetFramework>net9.0-windows10.0.19041.0</TargetFramework>
     <OutputType>WinExe</OutputType>
-    <RootNamespace>MqttAgent</RootNamespace>
+    <RootNamespace>WinAgent</RootNamespace>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWindowsForms>true</UseWindowsForms>

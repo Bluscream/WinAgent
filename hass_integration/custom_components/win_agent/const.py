@@ -1,4 +1,4 @@
-DOMAIN = "mqtt_agent"
+DOMAIN = "win_agent"
 CONF_HOST = "host"
 CONF_PORT = "port"
 CONF_TOKEN = "token"

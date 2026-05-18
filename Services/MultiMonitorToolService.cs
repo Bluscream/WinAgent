@@ -8,9 +8,9 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Xml.Linq;
 using System.Text.Json;
-using MqttAgent.Utils;
+using WinAgent.Utils;
 
-namespace MqttAgent.Services;
+namespace WinAgent.Services;
 
 public class MultiMonitorToolService
 {

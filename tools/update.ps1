@@ -6,37 +6,37 @@ param (
     [switch]$Install,
     [switch]$Start,
     [switch]$StartTray,
-    [string]$DeployPath = "D:\Scripts\MqttAgent.exe"
+    [string]$DeployPath = "D:\Scripts\WinAgent.exe"
 )
 
 $RootDir = Split-Path -Parent $PSScriptRoot
 $ConfigPath = Join-Path $RootDir "appsettings.json"
 
 # Load config from JSON if exists
-$Token = $env:MQTTAGENT_TOKEN
-$Port = if ($env:MQTTAGENT_PORT) { [int]$env:MQTTAGENT_PORT } else { 23482 }
+$Token = $env:WINAGENT_TOKEN
+$Port = if ($env:WINAGENT_PORT) { [int]$env:WINAGENT_PORT } else { 23482 }
 
 if (Test-Path $ConfigPath) {
     try {
         $json = Get-Content $ConfigPath -Raw | ConvertFrom-Json
-        if ($json.MqttAgent.Token) { $Token = $json.MqttAgent.Token }
-        if ($json.MqttAgent.Port) { $Port = $json.MqttAgent.Port }
+        if ($json.WinAgent.Token) { $Token = $json.WinAgent.Token }
+        if ($json.WinAgent.Port) { $Port = $json.WinAgent.Port }
     } catch {
         Write-Warning "Failed to parse $ConfigPath."
     }
 }
 
 if (-not $Token) {
-    Write-Error "CRITICAL: MQTTAGENT_TOKEN not found in config or environment. Deployment aborted for security."
+    Write-Error "CRITICAL: WINAGENT_TOKEN not found in config or environment. Deployment aborted for security."
     exit 1
 }
 
 Write-Host "Loaded config (Token: ...$($Token.Substring($Token.Length - 4)), Port: $Port)" -ForegroundColor Gray
 
-$CsprojPath = Join-Path $RootDir "MqttAgent.csproj"
+$CsprojPath = Join-Path $RootDir "WinAgent.csproj"
 $PublishDir = Join-Path $RootDir "publish"
-$ExePath = Join-Path $PublishDir "MqttAgent.exe"
-$ServiceName = "MqttAgent"
+$ExePath = Join-Path $PublishDir "WinAgent.exe"
+$ServiceName = "WinAgent"
 
 function Bump-Version {
     $content = Get-Content $CsprojPath -Raw
@@ -52,7 +52,7 @@ function Bump-Version {
 }
 
 if ($Stop) {
-    Write-Host "Stopping MQTT Agent via native flag..." -ForegroundColor Cyan
+    Write-Host "Stopping WinAgent via native flag..." -ForegroundColor Cyan
     if (Test-Path $DeployPath) {
         sudo $DeployPath --stop
     } else {
@@ -63,8 +63,8 @@ if ($Stop) {
     }
 
     Write-Host "Cleaning up any remaining processes..." -ForegroundColor Gray
-    Get-Process MqttAgent -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-    taskkill /F /IM MqttAgent.exe /T 2>$null
+    Get-Process WinAgent -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    taskkill /F /IM WinAgent.exe /T 2>$null
 
     Write-Host "Waiting for file locks to release..." -ForegroundColor Gray
     $retry = 10
@@ -94,7 +94,7 @@ if ($Build) {
 if ($Deploy) {
     Write-Host "Deploying single-file to $DeployPath..." -ForegroundColor Cyan
     dotnet publish $RootDir -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o "$PublishDir\single"
-    $SingleExe = Join-Path "$PublishDir\single" "MqttAgent.exe"
+    $SingleExe = Join-Path "$PublishDir\single" "WinAgent.exe"
     if (Test-Path $SingleExe) {
         if (Test-Path $DeployPath) {
             try {
@@ -128,7 +128,7 @@ if ($Publish) {
 
     # GH Release
     dotnet publish $RootDir -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o "$PublishDir\release"
-    $ReleaseExe = Join-Path "$PublishDir\release" "MqttAgent.exe"
+    $ReleaseExe = Join-Path "$PublishDir\release" "WinAgent.exe"
     gh release create "v$newVersion" $ReleaseExe --title "Release v$newVersion" --notes "Automated release via update.ps1"
 }
 
@@ -146,7 +146,7 @@ if ($Install) {
 }
 
 if ($Start -and -not $Install) {
-    Write-Host "Starting MQTT Agent Service..." -ForegroundColor Cyan
+    Write-Host "Starting WinAgent Service..." -ForegroundColor Cyan
     $TargetExe = if ($Deploy) { $DeployPath } else { $ExePath }
     sudo $TargetExe --start
     

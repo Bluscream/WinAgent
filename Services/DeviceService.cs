@@ -6,11 +6,11 @@ using System.Text.Json;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using MqttAgent.Utils;
+using WinAgent.Utils;
 using Microsoft.Extensions.Logging;
 using Nefarius.Utilities.DeviceManagement.PnP;
 
-namespace MqttAgent.Services;
+namespace WinAgent.Services;
 
 public class DeviceService
 {

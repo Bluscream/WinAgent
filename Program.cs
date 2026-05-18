@@ -11,13 +11,13 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using MqttAgent.Services;
-using MqttAgent.Utils;
+using WinAgent.Services;
+using WinAgent.Utils;
 using Serilog;
 using System.Text.Json;
 using Microsoft.OpenApi.Models;
 
-namespace MqttAgent;
+namespace WinAgent;
 
 public static class Program
 {
@@ -41,7 +41,7 @@ public static class Program
 
         var builder = WebApplication.CreateBuilder(args);
         builder.Configuration.AddJsonFile("appsettings.json", optional: true, reloadOnChange: true);
-        builder.Configuration.AddJsonFile("MqttAgent.json", optional: true, reloadOnChange: true);
+        builder.Configuration.AddJsonFile("WinAgent.json", optional: true, reloadOnChange: true);
         builder.Configuration.AddEnvironmentVariables();
         builder.Configuration.AddCommandLine(args);
 
@@ -52,7 +52,7 @@ public static class Program
             .ReadFrom.Configuration(builder.Configuration)
             .Enrich.FromLogContext()
             .WriteTo.Console()
-            .WriteTo.File(Path.Combine(baseDir, "logs", "mqtt-agent.log"), rollingInterval: RollingInterval.Day)
+            .WriteTo.File(Path.Combine(baseDir, "logs", "winagent.log"), rollingInterval: RollingInterval.Day)
             .CreateLogger();
 
         builder.Logging.ClearProviders();
@@ -62,16 +62,16 @@ public static class Program
         bool isTray = Global.IsTrayMode;
         bool isService = Global.IsServiceMode;
         
-        var token = Config.Get("token", "-token", "MQTTAGENT_TOKEN");
+        var token = Config.Get("token", "-token", "WINAGENT_TOKEN");
         
         if (string.IsNullOrEmpty(token))
         {
-            Log.Fatal("CRITICAL ERROR: No MQTTAGENT_TOKEN provided. The application cannot start without an authentication token for security reasons. Please set the MQTTAGENT_TOKEN environment variable or provide it via appsettings.json.");
-            throw new InvalidOperationException("MQTTAGENT_TOKEN is required.");
+            Log.Fatal("CRITICAL ERROR: No WINAGENT_TOKEN provided. The application cannot start without an authentication token for security reasons. Please set the WINAGENT_TOKEN environment variable or provide it via appsettings.json.");
+            throw new InvalidOperationException("WINAGENT_TOKEN is required.");
         }
 
         // Configure Kestrel
-        var portStr = Config.Get("port", "MQTTAGENT_PORT");
+        var portStr = Config.Get("port", "WINAGENT_PORT");
         if (string.IsNullOrEmpty(portStr)) portStr = "23482";
         var port = int.Parse(portStr);
         
@@ -80,7 +80,7 @@ public static class Program
             options.ListenAnyIP(port);
         });
 
-        builder.Services.Configure<MqttAgent.Models.MqttOptions>(options =>
+        builder.Services.Configure<WinAgent.Models.MqttOptions>(options =>
         {
             options.Ip = Config.Get("Mqtt:Ip", "MQTT_IP");
             if (string.IsNullOrEmpty(options.Ip)) options.Ip = "127.0.0.1";
@@ -104,7 +104,7 @@ public static class Program
         builder.Services.AddEndpointsApiExplorer();
         builder.Services.AddSwaggerGen(c =>
         {
-            c.SwaggerDoc("v1", new OpenApiInfo { Title = "MQTT.Agent API", Version = "v1" });
+            c.SwaggerDoc("v1", new OpenApiInfo { Title = "WinAgent API", Version = "v1" });
             c.AddSecurityDefinition("Token", new OpenApiSecurityScheme
             {
                 Description = "Token Authentication using 'Authorization: Bearer <token>' header or '?token=<token>' query parameter",
@@ -164,7 +164,7 @@ public static class Program
             using var loggerFactory = LoggerFactory.Create(builder => builder.AddSerilog());
             var setupLogger = loggerFactory.CreateLogger<PersistenceService>();
             var persistence = new PersistenceService(setupLogger);
-            string serviceName = "MqttAgent";
+            string serviceName = "WinAgent";
             
             if (uninstall || Global.IsStop || (install && Global.IsStop))
             {
@@ -268,7 +268,7 @@ public static class Program
         app.UseSwagger();
         app.UseSwaggerUI(c =>
         {
-            c.SwaggerEndpoint("/swagger/v1/swagger.json", "MQTT.Agent API v1");
+            c.SwaggerEndpoint("/swagger/v1/swagger.json", "WinAgent API v1");
             c.RoutePrefix = "docs";
         });
 

@@ -7,9 +7,9 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using LibreHardwareMonitor.Hardware;
-using MqttAgent.Models;
+using WinAgent.Models;
 
-namespace MqttAgent.Utils;
+namespace WinAgent.Utils;
 
 public static class Extensions
 {
@@ -271,7 +271,7 @@ public static class Extensions
     {
         foreach (var key in keys)
         {
-            var val = config[$"MqttAgent:{key}"] ?? config[key] ?? config[key.ToLowerInvariant()];
+            var val = config[$"WinAgent:{key}"] ?? config[key] ?? config[key.ToLowerInvariant()];
             if (!string.IsNullOrEmpty(val)) return val;
         }
         return null;

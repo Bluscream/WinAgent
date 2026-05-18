@@ -8,8 +8,8 @@ from .const import DOMAIN, CONF_HOST, CONF_PORT, CONF_TOKEN, CONF_NAME
 
 _LOGGER = logging.getLogger(__name__)
 
-class MqttAgentConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for MQTT.Agent."""
+class WinAgentConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+    """Handle a config flow for WinAgent."""
 
     VERSION = 1
 
@@ -53,10 +53,10 @@ class MqttAgentConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @callback
     def async_get_options_flow(config_entry):
         """Get the options flow for this handler."""
-        return MqttAgentOptionsFlowHandler(config_entry)
+        return WinAgentOptionsFlowHandler(config_entry)
 
-class MqttAgentOptionsFlowHandler(config_entries.OptionsFlow):
-    """Handle options flow for MQTT.Agent."""
+class WinAgentOptionsFlowHandler(config_entries.OptionsFlow):
+    """Handle options flow for WinAgent."""
 
     def __init__(self, config_entry):
         """Initialize options flow."""

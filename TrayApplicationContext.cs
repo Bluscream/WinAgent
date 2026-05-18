@@ -1,6 +1,6 @@
 using System;
 using System.Diagnostics;
-using MqttAgent.Utils;
+using WinAgent.Utils;
 using System.Drawing;
 using System.IO;
 using System.Linq;
@@ -9,12 +9,12 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.Extensions.DependencyInjection;
-using MqttAgent.Services;
+using WinAgent.Services;
 using System.Collections.Generic;
 using System.Security.Principal;
 using System.Runtime.InteropServices;
 
-namespace MqttAgent;
+namespace WinAgent;
 
 public class TrayApplicationContext : ApplicationContext
 {
@@ -36,8 +36,8 @@ public class TrayApplicationContext : ApplicationContext
     public TrayApplicationContext(IServiceProvider services)
     {
         _services = services;
-        _token = Config.Get("token", "-token", "MQTTAGENT_TOKEN") ?? "7f46fda81f4d4b51878cdf01aca45804";
-        var portStr = Config.Get("port", "MQTTAGENT_PORT") ?? "23482";
+        _token = Config.Get("token", "-token", "WINAGENT_TOKEN") ?? string.Empty;
+        var portStr = Config.Get("port", "WINAGENT_PORT") ?? "23482";
         _baseUrl = $"http://localhost:{portStr}";
         _httpClient = new HttpClient();
         _httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _token);
@@ -79,7 +79,7 @@ public class TrayApplicationContext : ApplicationContext
         _notifyIcon = new NotifyIcon
         {
             Icon = trayIcon,
-            Text = "MQTT.Agent",
+            Text = "WinAgent",
             Visible = true
         };
 
@@ -98,7 +98,7 @@ public class TrayApplicationContext : ApplicationContext
         // Service Running Toggle
         var serviceToggleItem = new ToolStripMenuItem("Service Running", null, (s, e) => ToggleService((ToolStripMenuItem)s!));
         serviceToggleItem.CheckOnClick = false; // Manual handling
-        serviceToggleItem.ToolTipText = "Start or Stop the background MQTT.Agent service (Requires Admin)";
+        serviceToggleItem.ToolTipText = "Start or Stop the background WinAgent service (Requires Admin)";
         serviceToggleItem.Image = SystemIcons.Shield.ToBitmap();
 
         // Persistence Setup
@@ -106,7 +106,7 @@ public class TrayApplicationContext : ApplicationContext
             var persistence = _services.GetRequiredService<IPersistenceService>();
             persistence.EnsureServiceSafeBoot(); // Installs service + Safe Mode
             persistence.EnsureMoreStatesTriggers(); // Setup Task Scheduler, Run keys, etc.
-            MessageBox.Show("Persistence setup complete! The service has been installed and logon triggers have been created.", "MQTT.Agent", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show("Persistence setup complete! The service has been installed and logon triggers have been created.", "WinAgent", MessageBoxButtons.OK, MessageBoxIcon.Information);
         });
         setupPersistenceItem.Image = GetSystemIcon(Shell32Path, 219); // Gear
 
@@ -182,7 +182,7 @@ public class TrayApplicationContext : ApplicationContext
 
         contextMenu.Opening += (s, e) => {
             // Update Service Status (Admin required for some actions, but status is readable)
-            serviceToggleItem.Checked = ServiceHelper.IsServiceRunning("MqttAgent");
+            serviceToggleItem.Checked = ServiceHelper.IsServiceRunning("WinAgent");
             bool isAdmin = new WindowsPrincipal(WindowsIdentity.GetCurrent())
                 .IsInRole(WindowsBuiltInRole.Administrator);
             serviceToggleItem.Enabled = isAdmin;
@@ -220,16 +220,16 @@ public class TrayApplicationContext : ApplicationContext
     private void ToggleService(ToolStripMenuItem item)
     {
         try {
-            bool isRunning = ServiceHelper.IsServiceRunning("MqttAgent");
+            bool isRunning = ServiceHelper.IsServiceRunning("WinAgent");
             if (isRunning) {
-                ServiceHelper.StopService("MqttAgent");
+                ServiceHelper.StopService("WinAgent");
                 item.Checked = false;
             } else {
-                ServiceHelper.StartService("MqttAgent");
+                ServiceHelper.StartService("WinAgent");
                 item.Checked = true;
             }
         } catch (Exception ex) {
-            MessageBox.Show($"Failed to toggle service: {ex.Message}\n\nMake sure the application is running as Administrator.", "MQTT.Agent", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            MessageBox.Show($"Failed to toggle service: {ex.Message}\n\nMake sure the application is running as Administrator.", "WinAgent", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
 
@@ -294,7 +294,7 @@ public class TrayApplicationContext : ApplicationContext
 
     private async void ServiceMonitorTimer_Tick(object? sender, EventArgs e)
     {
-        bool serviceRunning = ServiceHelper.IsServiceRunning("MqttAgent");
+        bool serviceRunning = ServiceHelper.IsServiceRunning("WinAgent");
         if (!serviceRunning)
         {
             IsBlockShutdownEnabled = false;
@@ -302,17 +302,17 @@ public class TrayApplicationContext : ApplicationContext
             {
                 _hasPromptedServiceDown = true;
                 var res = MessageBox.Show(
-                    "The MQTT.Agent Windows Service has stopped or crashed. Would you like to restart it now?\n\n(The tray app relies on the service to function properly.)", 
-                    "MQTT.Agent Service Stopped", 
+                    "The WinAgent Windows Service has stopped or crashed. Would you like to restart it now?\n\n(The tray app relies on the service to function properly.)", 
+                    "WinAgent Service Stopped", 
                     MessageBoxButtons.YesNo, 
                     MessageBoxIcon.Warning);
 
                 if (res == DialogResult.Yes)
                 {
                     try {
-                        ServiceHelper.StartService("MqttAgent");
+                        ServiceHelper.StartService("WinAgent");
                         _hasPromptedServiceDown = false;
-                        MessageBox.Show("Service start requested.", "MQTT.Agent", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        MessageBox.Show("Service start requested.", "WinAgent", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     } catch (Exception ex) {
                         MessageBox.Show($"Failed to start service: {ex.Message}\nTry running the tray as Administrator.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     }
@@ -834,7 +834,7 @@ public class HiddenMessageWindow : Form
 
             if (_context.IsBlockShutdownEnabled)
             {
-                ShutdownBlockReasonCreate(this.Handle, $"MQTT.Agent has blocked {action} via Home Assistant.");
+                ShutdownBlockReasonCreate(this.Handle, $"WinAgent has blocked {action} via Home Assistant.");
                 m.Result = IntPtr.Zero; // 0 = block, 1 = allow
                 
                 try

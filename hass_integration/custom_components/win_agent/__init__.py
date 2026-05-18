@@ -27,12 +27,12 @@ START_PROCESS_SCHEMA = vol.Schema({
 })
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Set up the MQTT.Agent integration."""
+    """Set up the WinAgent integration."""
     hass.data.setdefault(DOMAIN, {})
     return True
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up MQTT.Agent from a config entry."""
+    """Set up WinAgent from a config entry."""
     hass.data[DOMAIN][entry.entry_id] = entry.data
 
     async def get_target_config(call: ServiceCall):
