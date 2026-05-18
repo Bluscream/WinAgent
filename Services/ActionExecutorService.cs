@@ -196,6 +196,10 @@ public class ActionExecutorService : IHostedService
             {
                 // Update state topic immediately
                 await _mqttManager.EnqueueAsync($"homeassistant/select/{_mqttManager.UniqueId}_power_profile/state", schemeName, true);
+                
+                var icon = PowerHelper.GetPowerProfileIcon(schemeName);
+                var attr = new { icon = icon };
+                await _mqttManager.EnqueueAsync($"homeassistant/select/{_mqttManager.UniqueId}_power_profile/attributes", JsonSerializer.Serialize(attr), true);
             }
             else
             {

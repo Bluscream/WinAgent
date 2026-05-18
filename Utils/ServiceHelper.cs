@@ -87,12 +87,14 @@ namespace MqttAgent.Utils
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool QueryServiceStatus(IntPtr hService, ref SERVICE_STATUS lpServiceStatus);
 
+        private const uint SC_MANAGER_CONNECT = 0x0001;
+
         public static bool IsServiceInstalled(string serviceName)
         {
-            IntPtr scm = OpenSCManager(null, null, SC_MANAGER_ALL_ACCESS);
+            IntPtr scm = OpenSCManager(null, null, SC_MANAGER_CONNECT);
             if (scm == IntPtr.Zero) return false;
 
-            IntPtr svc = OpenService(scm, serviceName, SERVICE_ALL_ACCESS);
+            IntPtr svc = OpenService(scm, serviceName, SERVICE_QUERY_STATUS);
             bool installed = svc != IntPtr.Zero;
 
             if (installed) CloseServiceHandle(svc);
@@ -196,7 +198,7 @@ namespace MqttAgent.Utils
 
         public static bool IsServiceRunning(string serviceName)
         {
-            IntPtr scm = OpenSCManager(null, null, SC_MANAGER_ALL_ACCESS);
+            IntPtr scm = OpenSCManager(null, null, SC_MANAGER_CONNECT);
             if (scm == IntPtr.Zero) return false;
 
             try

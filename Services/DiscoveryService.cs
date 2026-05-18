@@ -97,9 +97,10 @@ namespace MqttAgent.Services
                 object_id = $"{deviceIdentifier}_power_profile",
                 state_topic = $"homeassistant/select/{uniqueId}_power_profile/state",
                 command_topic = $"homeassistant/select/{uniqueId}_power_profile/set",
+                json_attributes_topic = $"homeassistant/select/{uniqueId}_power_profile/attributes",
                 options = PowerHelper.GetPowerSchemes().Select(s => s.Name).ToArray(),
                 device = deviceInfo,
-                icon = "mdi:lightning-bolt"
+                icon = "mdi:battery"
             };
 
             // 6. Hardware Sensors (Consolidated)

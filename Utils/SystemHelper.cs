@@ -283,5 +283,28 @@ namespace MqttAgent.Utils
         }
 
         public static bool IsNeedsAttention() => GetNeedsAttentionInfo() != null;
+
+        public static bool SetPnpDeviceState(string instanceId, bool enable, out string errorMessage)
+        {
+            errorMessage = "";
+            try
+            {
+                var device = Nefarius.Utilities.DeviceManagement.PnP.PnPDevice.GetDeviceByInstanceId(instanceId);
+                if (enable)
+                {
+                    device.Enable();
+                }
+                else
+                {
+                    device.Disable();
+                }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                errorMessage = ex.Message;
+                return false;
+            }
+        }
     }
 }

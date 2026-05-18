@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace MqttAgent.Controllers;
 
@@ -189,6 +190,62 @@ public class SystemController : ControllerBase
         await _mqtt.EnqueueAsync(topic, finalAction, true);
         
         return Ok(new { action = finalAction });
+    }
+
+    [HttpGet("system/power-schemes")]
+    public IActionResult GetPowerSchemes()
+    {
+        try
+        {
+            var schemes = PowerHelper.GetPowerSchemes();
+            var active = PowerHelper.GetActiveScheme();
+            var result = schemes.Select(s => new {
+                name = s.Name,
+                guid = s.Guid,
+                isActive = s.Name.Equals(active, StringComparison.OrdinalIgnoreCase)
+            }).ToList();
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new { error = ex.Message });
+        }
+    }
+
+    [AcceptVerbs("GET", "POST"), Route("system/set-power-scheme")]
+    public async Task<IActionResult> SetPowerScheme([FromQuery] string? scheme)
+    {
+        if (string.IsNullOrEmpty(scheme) && Request.HasJsonContentType())
+        {
+            try {
+                var body = await Request.ReadFromJsonAsync<JsonElement>();
+                if (body.TryGetProperty("scheme", out var prop)) scheme = prop.GetString();
+            } catch { }
+        }
+
+        if (string.IsNullOrEmpty(scheme)) return BadRequest("Scheme is required.");
+
+        bool success;
+        if (Guid.TryParse(scheme, out Guid guid))
+        {
+            success = PowerHelper.SetActiveScheme(guid);
+        }
+        else
+        {
+            success = PowerHelper.SetActiveScheme(scheme);
+        }
+
+        if (!success) return BadRequest("Failed to set power scheme.");
+
+        var activeName = PowerHelper.GetActiveScheme();
+        var uniqueId = _mqtt.UniqueId;
+        await _mqtt.EnqueueAsync($"homeassistant/select/{uniqueId}_power_profile/state", activeName, true);
+
+        var icon = PowerHelper.GetPowerProfileIcon(activeName);
+        var attr = new { icon = icon };
+        await _mqtt.EnqueueAsync($"homeassistant/select/{uniqueId}_power_profile/attributes", JsonSerializer.Serialize(attr), true);
+
+        return Ok(new { success = true, active = activeName });
     }
 
     [AcceptVerbs("GET", "POST"), Route("state")]

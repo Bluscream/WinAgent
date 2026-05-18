@@ -128,15 +128,13 @@ public class AudioService
                 return $"Could not find audio device matching '{identifier}'.";
             }
 
-            bool success = PnpHelper.SetDeviceState(instanceId, enable);
-
-            if (success)
+            if (SystemHelper.SetPnpDeviceState(instanceId, enable, out string error))
             {
                 return $"Audio device '{identifier}' {action}d successfully.";
             }
             else
             {
-                return $"Failed to {action} audio device '{identifier}' (Native error).";
+                return $"Failed to {action} audio device '{identifier}': {error}";
             }
         }
         catch (Exception ex)

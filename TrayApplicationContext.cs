@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.Extensions.DependencyInjection;
 using MqttAgent.Services;
+using System.Collections.Generic;
 using System.Security.Principal;
 using System.Runtime.InteropServices;
 
@@ -23,6 +24,7 @@ public class TrayApplicationContext : ApplicationContext
     private readonly bool _isClientOnly;
     private readonly string _baseUrl;
     private readonly string _token;
+    private static readonly string Shell32Path = Path.Combine(Environment.SystemDirectory, "shell32.dll");
 
     private HiddenMessageWindow _messageWindow;
     private System.Windows.Forms.Timer _serviceMonitorTimer = null!;
@@ -85,15 +87,18 @@ public class TrayApplicationContext : ApplicationContext
         // Block Shutdown Toggle
         var blockShutdownItem = new ToolStripMenuItem("Block Shutdown", null, async (s, e) => await ToggleBlockShutdown((ToolStripMenuItem)s!));
         blockShutdownItem.CheckOnClick = false; // Manual handling
+        blockShutdownItem.Image = SystemIcons.Shield.ToBitmap();
         
         // Force Action Toggle
         var forceActionItem = new ToolStripMenuItem("Force Action", null, async (s, e) => await ToggleForceAction((ToolStripMenuItem)s!));
         forceActionItem.CheckOnClick = false; // Manual handling
+        forceActionItem.Image = SystemIcons.Warning.ToBitmap();
 
         // Service Running Toggle
         var serviceToggleItem = new ToolStripMenuItem("Service Running", null, (s, e) => ToggleService((ToolStripMenuItem)s!));
         serviceToggleItem.CheckOnClick = false; // Manual handling
         serviceToggleItem.ToolTipText = "Start or Stop the background MQTT.Agent service (Requires Admin)";
+        serviceToggleItem.Image = SystemIcons.Shield.ToBitmap();
 
         // Persistence Setup
         var setupPersistenceItem = new ToolStripMenuItem("Setup Persistence", null, async (s, e) => {
@@ -102,36 +107,40 @@ public class TrayApplicationContext : ApplicationContext
             persistence.EnsureMoreStatesTriggers(); // Setup Task Scheduler, Run keys, etc.
             MessageBox.Show("Persistence setup complete! The service has been installed and logon triggers have been created.", "MQTT.Agent", MessageBoxButtons.OK, MessageBoxIcon.Information);
         });
+        setupPersistenceItem.Image = GetSystemIcon(Shell32Path, 219); // Gear
 
-        contextMenu.Items.Add(blockShutdownItem);
-        contextMenu.Items.Add(forceActionItem);
-        contextMenu.Items.Add(serviceToggleItem);
-        contextMenu.Items.Add(new ToolStripSeparator());
-        contextMenu.Items.Add(setupPersistenceItem);
-        contextMenu.Items.Add(new ToolStripSeparator());
+        // 1. Power Options Submenu (contains shutdown, reboot, lock, logoff, plus block shutdown and force action)
+        var powerMenu = new ToolStripMenuItem("Power / Shutdown");
+        powerMenu.Image = GetSystemIcon(Shell32Path, 27); // Power logo
 
-        // Actions
-        contextMenu.Items.Add(new ToolStripMenuItem("Lock Workstation", null, (s, e) => ExecuteAction("lock")));
-        contextMenu.Items.Add(new ToolStripMenuItem("Reboot System", null, (s, e) => ExecuteAction("reboot")));
-        contextMenu.Items.Add(new ToolStripMenuItem("Shutdown System", null, (s, e) => ExecuteAction("shutdown")));
-        contextMenu.Items.Add(new ToolStripMenuItem("Logoff User", null, (s, e) => ExecuteAction("logoff")));
-        
-        contextMenu.Items.Add(new ToolStripSeparator());
-        contextMenu.Items.Add(new ToolStripMenuItem("Exit", null, ExitApplication));
+        var lockItem = new ToolStripMenuItem("Lock Workstation", null, (s, e) => ExecuteAction("lock"));
+        lockItem.Image = GetSystemIcon(Shell32Path, 47); // Padlock
 
-        contextMenu.Opening += async (s, e) => {
-            // Update Service Status (Admin required for some actions, but status is readable)
-            serviceToggleItem.Checked = ServiceHelper.IsServiceRunning("MqttAgent");
-            bool isAdmin = new WindowsPrincipal(WindowsIdentity.GetCurrent())
-                .IsInRole(WindowsBuiltInRole.Administrator);
-            serviceToggleItem.Enabled = isAdmin;
+        var logoffItem = new ToolStripMenuItem("Logoff User", null, (s, e) => ExecuteAction("logoff"));
+        logoffItem.Image = GetSystemIcon(Shell32Path, 45); // User key / Arrow
 
+        var rebootItem = new ToolStripMenuItem("Reboot System", null, (s, e) => ExecuteAction("reboot"));
+        rebootItem.Image = GetSystemIcon(Shell32Path, 238); // Circular green arrow
+
+        var shutdownItem = new ToolStripMenuItem("Shutdown System", null, (s, e) => ExecuteAction("shutdown"));
+        shutdownItem.Image = GetSystemIcon(Shell32Path, 27); // Red power off
+
+        powerMenu.DropDownItems.Add(lockItem);
+        powerMenu.DropDownItems.Add(logoffItem);
+        powerMenu.DropDownItems.Add(rebootItem);
+        powerMenu.DropDownItems.Add(shutdownItem);
+        powerMenu.DropDownItems.Add(new ToolStripSeparator());
+        powerMenu.DropDownItems.Add(blockShutdownItem);
+        powerMenu.DropDownItems.Add(forceActionItem);
+
+        // Fetch Block/Force status on opening the Power Options submenu
+        powerMenu.DropDownOpening += async (s, e) => {
             if (_isClientOnly) {
                 try {
                     var resp = await _httpClient.GetAsync($"{_baseUrl}/api/system/block-status");
                     if (resp.IsSuccessStatusCode) {
                         var json = await resp.Content.ReadAsStringAsync();
-                        var data = System.Text.Json.JsonDocument.Parse(json);
+                        using var data = System.Text.Json.JsonDocument.Parse(json);
                         blockShutdownItem.Checked = data.RootElement.GetProperty("enabled").GetBoolean();
                     }
                 } catch { }
@@ -139,16 +148,43 @@ public class TrayApplicationContext : ApplicationContext
                     var resp = await _httpClient.GetAsync($"{_baseUrl}/api/system/force-status");
                     if (resp.IsSuccessStatusCode) {
                         var json = await resp.Content.ReadAsStringAsync();
-                        var data = System.Text.Json.JsonDocument.Parse(json);
+                        using var data = System.Text.Json.JsonDocument.Parse(json);
                         forceActionItem.Checked = data.RootElement.GetProperty("enabled").GetBoolean();
                     }
                 } catch { }
-            } else {
-                var blocker = _services.GetService<ShutdownBlockerService>();
-                if (blocker != null) blockShutdownItem.Checked = blocker.IsBlockingEnabled;
-                var forcer = _services.GetService<ForceActionService>();
-                if (forcer != null) forceActionItem.Checked = forcer.IsForceEnabled;
             }
+        };
+
+        // 2. Power Profiles Submenu
+        var powerProfilesMenu = new ToolStripMenuItem("Power Profiles");
+        powerProfilesMenu.Image = GetSystemIcon(Shell32Path, 20); // Plug/Battery
+        powerProfilesMenu.DropDownOpening += async (s, e) => await PopulatePowerProfilesMenu(powerProfilesMenu);
+
+        // 3. Devices Submenu
+        var devicesMenu = new ToolStripMenuItem("Devices");
+        devicesMenu.Image = GetSystemIcon(Shell32Path, 172); // Hardware/Device Manager
+        devicesMenu.DropDownOpening += async (s, e) => await PopulateDevicesMenu(devicesMenu);
+
+        // Add to main context menu
+        contextMenu.Items.Add(serviceToggleItem);
+        contextMenu.Items.Add(new ToolStripSeparator());
+        contextMenu.Items.Add(powerMenu);
+        contextMenu.Items.Add(powerProfilesMenu);
+        contextMenu.Items.Add(devicesMenu);
+        contextMenu.Items.Add(new ToolStripSeparator());
+        contextMenu.Items.Add(setupPersistenceItem);
+        contextMenu.Items.Add(new ToolStripSeparator());
+
+        var exitItem = new ToolStripMenuItem("Exit", null, ExitApplication);
+        exitItem.Image = GetSystemIcon(Shell32Path, 131); // Red cross / Exit
+        contextMenu.Items.Add(exitItem);
+
+        contextMenu.Opening += (s, e) => {
+            // Update Service Status (Admin required for some actions, but status is readable)
+            serviceToggleItem.Checked = ServiceHelper.IsServiceRunning("MqttAgent");
+            bool isAdmin = new WindowsPrincipal(WindowsIdentity.GetCurrent())
+                .IsInRole(WindowsBuiltInRole.Administrator);
+            serviceToggleItem.Enabled = isAdmin;
         };
 
         _notifyIcon.ContextMenuStrip = contextMenu;
@@ -298,6 +334,452 @@ public class TrayApplicationContext : ApplicationContext
             }
             catch { }
         }
+    }
+
+    private class PowerProfileDto
+    {
+        public string Name { get; set; } = "";
+        public string Guid { get; set; } = "";
+        public bool IsActive { get; set; }
+    }
+
+    private class DeviceDto
+    {
+        public string Name { get; set; } = "";
+        public string DeviceID { get; set; } = "";
+        public string Class { get; set; } = "";
+        public string ClassGuid { get; set; } = "";
+        public string Status { get; set; } = "";
+        public bool Present { get; set; }
+        public bool Enabled { get; set; }
+    }
+
+    private bool _isPopulatingPower = false;
+    private async Task PopulatePowerProfilesMenu(ToolStripMenuItem powerMenu)
+    {
+        if (_isPopulatingPower) return;
+        _isPopulatingPower = true;
+
+        powerMenu.DropDownItems.Clear();
+        var loadingItem = new ToolStripMenuItem("Loading...") { Enabled = false };
+        powerMenu.DropDownItems.Add(loadingItem);
+
+        try
+        {
+            var resp = await _httpClient.GetAsync($"{_baseUrl}/api/system/power-schemes");
+            if (!resp.IsSuccessStatusCode)
+            {
+                loadingItem.Text = "Failed to load power profiles.";
+                return;
+            }
+
+            var json = await resp.Content.ReadAsStringAsync();
+            var profiles = System.Text.Json.JsonSerializer.Deserialize<List<PowerProfileDto>>(json, new System.Text.Json.JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            });
+
+            if (profiles == null || profiles.Count == 0)
+            {
+                loadingItem.Text = "No power profiles found.";
+                return;
+            }
+
+            powerMenu.DropDownItems.Clear();
+
+            foreach (var prof in profiles)
+            {
+                var item = new ToolStripMenuItem(prof.Name);
+                item.Checked = prof.IsActive;
+                item.CheckOnClick = false;
+                item.Image = GetPowerProfileIcon(prof.Name, prof.Guid);
+
+                string profileName = prof.Name;
+                item.Click += async (s, ev) =>
+                {
+                    var clickedItem = (ToolStripMenuItem)s!;
+                    clickedItem.Enabled = false;
+                    try
+                    {
+                        var setResp = await _httpClient.PostAsync($"{_baseUrl}/api/system/set-power-scheme?scheme={Uri.EscapeDataString(profileName)}", null);
+                        if (setResp.IsSuccessStatusCode)
+                        {
+                            // Uncheck all other items and check this one
+                            foreach (ToolStripItem other in powerMenu.DropDownItems)
+                            {
+                                if (other is ToolStripMenuItem mi) mi.Checked = false;
+                            }
+                            clickedItem.Checked = true;
+                        }
+                        else
+                        {
+                            MessageBox.Show("Failed to set power profile.", "Power Profile Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show($"Failed to communicate with service: {ex.Message}", "IPC Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                    finally
+                    {
+                        clickedItem.Enabled = true;
+                    }
+                };
+
+                powerMenu.DropDownItems.Add(item);
+            }
+        }
+        catch (Exception ex)
+        {
+            powerMenu.DropDownItems.Clear();
+            powerMenu.DropDownItems.Add(new ToolStripMenuItem($"Error: {ex.Message}") { Enabled = false });
+        }
+        finally
+        {
+            _isPopulatingPower = false;
+        }
+    }
+
+    private bool _isPopulatingDevices = false;
+    private async Task PopulateDevicesMenu(ToolStripMenuItem devicesMenuItem)
+    {
+        if (_isPopulatingDevices) return;
+        _isPopulatingDevices = true;
+
+        devicesMenuItem.DropDownItems.Clear();
+        var loadingItem = new ToolStripMenuItem("Loading...") { Enabled = false };
+        devicesMenuItem.DropDownItems.Add(loadingItem);
+
+        try
+        {
+            var resp = await _httpClient.GetAsync($"{_baseUrl}/api/device-list");
+            if (!resp.IsSuccessStatusCode)
+            {
+                loadingItem.Text = "Failed to load devices.";
+                return;
+            }
+
+            var json = await resp.Content.ReadAsStringAsync();
+            var devices = System.Text.Json.JsonSerializer.Deserialize<List<DeviceDto>>(json, new System.Text.Json.JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            });
+
+            if (devices == null || devices.Count == 0)
+            {
+                loadingItem.Text = "No devices found.";
+                return;
+            }
+
+            devicesMenuItem.DropDownItems.Clear();
+
+            // Group by Friendly Class name
+            var grouped = devices
+                .GroupBy(d => GetFriendlyClassName(d.Class))
+                .OrderBy(g => g.Key);
+
+            foreach (var group in grouped)
+            {
+                var classMenu = new ToolStripMenuItem(group.Key);
+                classMenu.Image = GetFriendlyClassIcon(group.First().Class, group.First().ClassGuid);
+                
+                // Sort devices alphabetically by Name
+                var sortedDevices = group.OrderBy(d => d.Name);
+
+                foreach (var dev in sortedDevices)
+                {
+                    // Clean up name if too long
+                    string displayName = dev.Name;
+                    if (displayName.Length > 60) displayName = displayName.Substring(0, 57) + "...";
+
+                    var devItem = new ToolStripMenuItem(displayName);
+                    devItem.Checked = dev.Enabled;
+                    devItem.CheckOnClick = false;
+                    
+                    // Bind toggle action
+                    string devId = dev.DeviceID;
+                    devItem.Click += async (s, ev) =>
+                    {
+                        var clickedItem = (ToolStripMenuItem)s!;
+                        bool targetState = !clickedItem.Checked;
+                        string endpoint = targetState ? "device-enable" : "device-disable";
+                        
+                        clickedItem.Enabled = false; // Disable temporarily during API call
+                        try
+                        {
+                            var toggleResp = await _httpClient.PostAsync($"{_baseUrl}/api/{endpoint}?pattern={Uri.EscapeDataString(devId)}", null);
+                            if (toggleResp.IsSuccessStatusCode)
+                            {
+                                var contentJson = await toggleResp.Content.ReadAsStringAsync();
+                                var result = System.Text.Json.JsonSerializer.Deserialize<DeviceToggleResult>(contentJson, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                                if (result != null)
+                                {
+                                    if (result.Success)
+                                    {
+                                        clickedItem.Checked = targetState;
+                                        
+                                        var detail = result.Results.FirstOrDefault();
+                                        string heading = targetState ? "Device Enabled Successfully" : "Device Disabled Successfully";
+                                        string msg = detail != null ? detail.Message : $"Device toggled successfully.";
+                                        string details = detail != null ? $"Device Name: {detail.Name}\nDevice ID: {detail.DeviceID}\nAction: {detail.Action}\nStatus: Succeeded" : "";
+                                        
+                                        var thread = new Thread(() =>
+                                        {
+                                            Modern_Windows_Message_Box_Generator.CLI.Program.Main(new[] { 
+                                                "--messagebox", 
+                                                "--title", "MQTT Agent", 
+                                                "--heading", heading, 
+                                                "--message", msg, 
+                                                "--icon", "shieldgreen",
+                                                "--details", details
+                                            }).Wait();
+                                        });
+                                        thread.SetApartmentState(ApartmentState.STA);
+                                        thread.Start();
+                                    }
+                                    else
+                                    {
+                                        var detail = result.Results.FirstOrDefault();
+                                        string heading = "Device Action Failed";
+                                        string msg = detail != null ? detail.Message : "Failed to toggle device.";
+                                        string error = detail?.Error ?? "Unknown error.";
+                                        string details = detail != null ? $"Device Name: {detail.Name}\nDevice ID: {detail.DeviceID}\nAction: {detail.Action}\nStatus: Failed\nError: {error}" : "";
+                                        
+                                        var thread = new Thread(() =>
+                                        {
+                                            Modern_Windows_Message_Box_Generator.CLI.Program.Main(new[] { 
+                                                "--messagebox", 
+                                                "--title", "MQTT Agent", 
+                                                "--heading", heading, 
+                                                "--message", msg, 
+                                                "--icon", "shieldred",
+                                                "--details", details
+                                            }).Wait();
+                                        });
+                                        thread.SetApartmentState(ApartmentState.STA);
+                                        thread.Start();
+                                    }
+                                }
+                                else
+                                {
+                                    var thread = new Thread(() =>
+                                    {
+                                        Modern_Windows_Message_Box_Generator.CLI.Program.Main(new[] { 
+                                            "--messagebox", 
+                                            "--title", "MQTT Agent", 
+                                            "--heading", "Device Action Completed", 
+                                            "--message", "Device action completed with an empty or unparseable result.", 
+                                            "--icon", "shieldyellow",
+                                            "--details", $"Raw response:\n{contentJson}"
+                                        }).Wait();
+                                    });
+                                    thread.SetApartmentState(ApartmentState.STA);
+                                    thread.Start();
+                                }
+                            }
+                            else
+                            {
+                                var errText = await toggleResp.Content.ReadAsStringAsync();
+                                string detailsStr = $"HTTP Status: {(int)toggleResp.StatusCode} {toggleResp.ReasonPhrase}\nResponse: {errText}";
+                                var thread = new Thread(() =>
+                                {
+                                    Modern_Windows_Message_Box_Generator.CLI.Program.Main(new[] { 
+                                        "--messagebox", 
+                                        "--title", "MQTT Agent Error", 
+                                        "--heading", "Device Toggle Failed", 
+                                        "--message", $"The service returned an HTTP error: {toggleResp.StatusCode}", 
+                                        "--icon", "shieldred",
+                                        "--details", detailsStr
+                                    }).Wait();
+                                });
+                                thread.SetApartmentState(ApartmentState.STA);
+                                thread.Start();
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            var thread = new Thread(() =>
+                            {
+                                Modern_Windows_Message_Box_Generator.CLI.Program.Main(new[] { 
+                                    "--messagebox", 
+                                    "--title", "MQTT Agent Connection Error", 
+                                    "--heading", "IPC Communication Error", 
+                                    "--message", $"Failed to communicate with the MQTT Agent service.", 
+                                    "--icon", "shieldred",
+                                    "--details", $"Error Details: {ex.Message}\n\nStack Trace:\n{ex.StackTrace}"
+                                }).Wait();
+                            });
+                            thread.SetApartmentState(ApartmentState.STA);
+                            thread.Start();
+                        }
+                        finally
+                        {
+                            clickedItem.Enabled = true;
+                        }
+                    };
+
+                    classMenu.DropDownItems.Add(devItem);
+                }
+
+                devicesMenuItem.DropDownItems.Add(classMenu);
+            }
+        }
+        catch (Exception ex)
+        {
+            devicesMenuItem.DropDownItems.Clear();
+            devicesMenuItem.DropDownItems.Add(new ToolStripMenuItem($"Error: {ex.Message}") { Enabled = false });
+        }
+        finally
+        {
+            _isPopulatingDevices = false;
+        }
+    }
+
+    private static string GetFriendlyClassName(string className)
+    {
+        if (string.IsNullOrEmpty(className)) return "Other Devices";
+        return className switch
+        {
+            "Net" => "Network adapters",
+            "DiskDrive" => "Disk drives",
+            "Display" => "Display adapters",
+            "Keyboard" => "Keyboards",
+            "Mouse" => "Mice and other pointing devices",
+            "Monitor" => "Monitors",
+            "Media" => "Sound, video and game controllers",
+            "USB" => "Universal Serial Bus controllers",
+            "System" => "System devices",
+            "Bluetooth" => "Bluetooth devices",
+            "Camera" => "Cameras",
+            "Computer" => "Computer",
+            "Image" => "Imaging devices",
+            "Ports" => "Ports (COM & LPT)",
+            "Processor" => "Processors",
+            "Volume" => "Storage volumes",
+            "Battery" => "Batteries",
+            "SCSIAdapter" => "Storage controllers",
+            _ => className
+        };
+    }
+
+    [DllImport("shell32.dll", CharSet = CharSet.Auto)]
+    private static extern int ExtractIconEx(string lpszFile, int nIconIndex, out IntPtr phiconLarge, out IntPtr phiconSmall, int nIcons);
+
+    [DllImport("user32.dll", EntryPoint = "DestroyIcon", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool DestroyIcon(IntPtr hIcon);
+
+    private static Image? GetSystemIcon(string file, int index)
+    {
+        try
+        {
+            IntPtr largeIcon = IntPtr.Zero;
+            IntPtr smallIcon = IntPtr.Zero;
+            ExtractIconEx(file, index, out largeIcon, out smallIcon, 1);
+
+            IntPtr chosenIcon = smallIcon != IntPtr.Zero ? smallIcon : largeIcon;
+            if (chosenIcon != IntPtr.Zero)
+            {
+                using var icon = Icon.FromHandle(chosenIcon);
+                var bmp = icon.ToBitmap();
+                
+                if (largeIcon != IntPtr.Zero) DestroyIcon(largeIcon);
+                if (smallIcon != IntPtr.Zero) DestroyIcon(smallIcon);
+                
+                return bmp;
+            }
+        }
+        catch { }
+        return null;
+    }
+
+    [DllImport("setupapi.dll", SetLastError = true)]
+    private static extern bool SetupDiLoadClassIcon(ref Guid classGuid, out IntPtr largeIcon, IntPtr miniIconIndex);
+
+    private static Image? GetFriendlyClassIcon(string className, string classGuidStr)
+    {
+        // First try SetupDiLoadClassIcon for the exact Windows device manager class icon
+        if (!string.IsNullOrEmpty(classGuidStr))
+        {
+            try
+            {
+                if (Guid.TryParse(classGuidStr, out Guid guid))
+                {
+                    IntPtr largeIcon;
+                    if (SetupDiLoadClassIcon(ref guid, out largeIcon, IntPtr.Zero))
+                    {
+                        if (largeIcon != IntPtr.Zero)
+                        {
+                            using var icon = Icon.FromHandle(largeIcon);
+                            var bmp = icon.ToBitmap();
+                            DestroyIcon(largeIcon);
+                            return bmp;
+                        }
+                    }
+                }
+            }
+            catch { }
+        }
+
+        // Fallback switches if API fails, returning null (no icon) instead of a generic fallback as requested
+        int index = className switch
+        {
+            "Net" => 9,
+            "DiskDrive" => 15,
+            "Display" => 16,
+            "Keyboard" => 258,
+            "Mouse" => 259,
+            "Monitor" => 16,
+            "Media" => 168,
+            "USB" => 39,
+            "System" => 18,
+            "Bluetooth" => 172,
+            "Camera" => 261,
+            "Computer" => 16,
+            "Image" => 261,
+            "Ports" => 39,
+            "Processor" => 263,
+            "Volume" => 11,
+            "Battery" => 20,
+            "SCSIAdapter" => 15,
+            _ => -1
+        };
+
+        if (index >= 0)
+        {
+            return GetSystemIcon(Shell32Path, index);
+        }
+
+        return null;
+    }
+
+    private static Image? GetPowerProfileIcon(string name, string guidStr)
+    {
+        string guidLower = guidStr.ToLowerInvariant();
+        string imageresPath = Path.Combine(Environment.SystemDirectory, "imageres.dll");
+
+        if (guidLower == "381b4222-f694-41f0-9685-ff5bb260df2e" || name.Contains("balanced", StringComparison.OrdinalIgnoreCase))
+        {
+            // Balanced
+            return GetSystemIcon(imageresPath, 122) ?? GetSystemIcon(Shell32Path, 20);
+        }
+        else if (guidLower == "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c" || name.Contains("high performance", StringComparison.OrdinalIgnoreCase))
+        {
+            // High Performance
+            return GetSystemIcon(imageresPath, 123) ?? GetSystemIcon(Shell32Path, 27);
+        }
+        else if (guidLower == "a1841308-3541-4fab-bc81-f71556f20b4a" || name.Contains("saver", StringComparison.OrdinalIgnoreCase))
+        {
+            // Power Saver
+            return GetSystemIcon(imageresPath, 121) ?? GetSystemIcon(Shell32Path, 20);
+        }
+        else if (guidLower == "e9a42b02-d5df-448d-aa00-03f14749eb61" || name.Contains("ultimate", StringComparison.OrdinalIgnoreCase))
+        {
+            // Ultimate Performance
+            return GetSystemIcon(imageresPath, 124) ?? GetSystemIcon(Shell32Path, 27);
+        }
+
+        return GetSystemIcon(Shell32Path, 20);
     }
 }
 

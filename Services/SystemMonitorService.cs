@@ -643,6 +643,10 @@ namespace MqttAgent.Services
             // Also update the power profile state topic
             await _mqtt.EnqueueAsync($"homeassistant/select/{uniqueId}_power_profile/state", attributes.power_profile, true);
             
+            var powerProfileIcon = PowerHelper.GetPowerProfileIcon(attributes.power_profile);
+            var powerProfileAttr = new { icon = powerProfileIcon };
+            await _mqtt.EnqueueAsync($"homeassistant/select/{uniqueId}_power_profile/attributes", JsonSerializer.Serialize(powerProfileAttr), true);
+            
             // Update interval state
             await _mqtt.EnqueueAsync($"homeassistant/number/{uniqueId}_update_interval/state", _updateIntervalSeconds.ToString(), true);
         }

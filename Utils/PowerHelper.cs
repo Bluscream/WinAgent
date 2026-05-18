@@ -190,5 +190,16 @@ namespace MqttAgent.Utils
             catch { }
             return schemeGuid.ToString();
         }
+
+        public static string GetPowerProfileIcon(string schemeName)
+        {
+            if (string.IsNullOrEmpty(schemeName)) return "mdi:battery";
+            string lower = schemeName.ToLowerInvariant();
+            if (lower.Contains("ultimate")) return "mdi:rocket-launch";
+            if (lower.Contains("high performance") || lower.Contains("highest performance") || lower.Contains("bitsum")) return "mdi:lightning-bolt";
+            if (lower.Contains("balanced")) return "mdi:battery-charging";
+            if (lower.Contains("power saver") || lower.Contains("saver") || lower.Contains("eco")) return "mdi:battery-leaf";
+            return "mdi:battery";
+        }
     }
 }
