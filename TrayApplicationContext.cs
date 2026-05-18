@@ -25,6 +25,7 @@ public class TrayApplicationContext : ApplicationContext
     private readonly string _baseUrl;
     private readonly string _token;
     private static readonly string Shell32Path = Path.Combine(Environment.SystemDirectory, "shell32.dll");
+    private static readonly string PowerCplPath = Path.Combine(Environment.SystemDirectory, "powercpl.dll");
 
     private HiddenMessageWindow _messageWindow;
     private System.Windows.Forms.Timer _serviceMonitorTimer = null!;
@@ -157,7 +158,7 @@ public class TrayApplicationContext : ApplicationContext
 
         // 2. Power Profiles Submenu
         var powerProfilesMenu = new ToolStripMenuItem("Power Profiles");
-        powerProfilesMenu.Image = GetSystemIcon(Shell32Path, 20); // Plug/Battery
+        powerProfilesMenu.Image = GetSystemIcon(PowerCplPath, 0); // Battery with plug
         powerProfilesMenu.DropDownOpening += async (s, e) => await PopulatePowerProfilesMenu(powerProfilesMenu);
 
         // 3. Devices Submenu
@@ -756,30 +757,30 @@ public class TrayApplicationContext : ApplicationContext
     private static Image? GetPowerProfileIcon(string name, string guidStr)
     {
         string guidLower = guidStr.ToLowerInvariant();
-        string imageresPath = Path.Combine(Environment.SystemDirectory, "imageres.dll");
 
         if (guidLower == "381b4222-f694-41f0-9685-ff5bb260df2e" || name.Contains("balanced", StringComparison.OrdinalIgnoreCase))
         {
-            // Balanced
-            return GetSystemIcon(imageresPath, 122) ?? GetSystemIcon(Shell32Path, 20);
+            // Balanced: Battery with plug
+            return GetSystemIcon(PowerCplPath, 0) ?? GetSystemIcon(Shell32Path, 20);
         }
         else if (guidLower == "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c" || name.Contains("high performance", StringComparison.OrdinalIgnoreCase))
         {
-            // High Performance
-            return GetSystemIcon(imageresPath, 123) ?? GetSystemIcon(Shell32Path, 27);
+            // High Performance: Power plug
+            return GetSystemIcon(PowerCplPath, 2) ?? GetSystemIcon(Shell32Path, 27);
         }
         else if (guidLower == "a1841308-3541-4fab-bc81-f71556f20b4a" || name.Contains("saver", StringComparison.OrdinalIgnoreCase))
         {
-            // Power Saver
-            return GetSystemIcon(imageresPath, 121) ?? GetSystemIcon(Shell32Path, 20);
+            // Power Saver: Battery cylinder
+            return GetSystemIcon(PowerCplPath, 1) ?? GetSystemIcon(Shell32Path, 20);
         }
         else if (guidLower == "e9a42b02-d5df-448d-aa00-03f14749eb61" || name.Contains("ultimate", StringComparison.OrdinalIgnoreCase))
         {
-            // Ultimate Performance
-            return GetSystemIcon(imageresPath, 124) ?? GetSystemIcon(Shell32Path, 27);
+            // Ultimate Performance: Power plug
+            return GetSystemIcon(PowerCplPath, 2) ?? GetSystemIcon(Shell32Path, 27);
         }
 
-        return GetSystemIcon(Shell32Path, 20);
+        // Generic fallback: Battery cylinder
+        return GetSystemIcon(PowerCplPath, 1) ?? GetSystemIcon(Shell32Path, 20);
     }
 }
 

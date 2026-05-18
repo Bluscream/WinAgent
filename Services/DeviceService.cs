@@ -147,7 +147,13 @@ public class DeviceService
             "acpi fan",
             "acpi thermal zone",
             "pnp software device enumerator",
-            "umbus enumerator"
+            "umbus enumerator",
+            "video controller",
+            "vga compatible",
+            "3d video controller",
+            "display controller",
+            "pci device",
+            "pci simple communications controller"
         };
 
         bool IsGeneric(string? name)

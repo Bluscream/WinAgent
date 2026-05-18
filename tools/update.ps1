@@ -42,7 +42,7 @@ function Bump-Version {
     $content = Get-Content $CsprojPath -Raw
     if ($content -match '<Version>(?<version>.*)</Version>') {
         $version = [version]$Matches['version']
-        $newVersion = "{0}.{1}.{2}" -f $version.Major, $version.Minor, ($version.Build + 1)
+        $newVersion = "{0}.{1}" -f $version.Major, ($version.Minor + 1)
         $content = $content -replace "<Version>.*</Version>", "<Version>$newVersion</Version>"
         $content | Set-Content $CsprojPath
         Write-Host "Bumped version to $newVersion" -ForegroundColor Magenta
