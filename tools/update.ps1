@@ -268,9 +268,10 @@ if ($Publish) {
     $TrayCsproj = Join-Path $RootDir "WinAgent.Tray\WinAgent.Tray.csproj"
     $CliCsproj = Join-Path $RootDir "WinAgent.CLI\WinAgent.CLI.csproj"
 
-    dotnet publish $ServiceCsproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:UseSharedCompilation=false -o "$PublishDir\shared"
-    dotnet publish $TrayCsproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:UseSharedCompilation=false -p:BuildProjectReferences=false -o "$PublishDir\shared"
-    dotnet publish $CliCsproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:UseSharedCompilation=false -p:BuildProjectReferences=false -o "$PublishDir\shared"
+    dotnet build-server shutdown | Out-Null
+    dotnet publish $ServiceCsproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:UseSharedCompilation=false -p:ErrorOnDuplicatePublishOutputFiles=false -o "$PublishDir\shared"
+    dotnet publish $TrayCsproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:UseSharedCompilation=false -p:BuildProjectReferences=false -p:ErrorOnDuplicatePublishOutputFiles=false -o "$PublishDir\shared"
+    dotnet publish $CliCsproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:UseSharedCompilation=false -p:BuildProjectReferences=false -p:ErrorOnDuplicatePublishOutputFiles=false -o "$PublishDir\shared"
 
     # 2. Build the WiX MSI Installer package
     Write-Host "Building WiX MSI Installer..." -ForegroundColor Gray
