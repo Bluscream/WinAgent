@@ -64,7 +64,7 @@ public class TrayApplicationContext : ApplicationContext
             }
             else
             {
-                string iconPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "BlockShutdown.ico");
+                string iconPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "icon.ico");
                 trayIcon = File.Exists(iconPath) ? new Icon(iconPath) : SystemIcons.Application;
             }
         }

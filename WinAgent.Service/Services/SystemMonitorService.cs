@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Diagnostics.Eventing.Reader;
 using Microsoft.Win32;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Linq;
 using System.Management;
 using System.ServiceProcess;
@@ -36,7 +37,7 @@ namespace WinAgent.Services
         private ManagementEventWatcher? _removalWatcher;
         
         // LibreHardwareMonitor
-        private readonly Computer _computer;
+        private readonly HardwareMonitorService _hardwareMonitor;
         private const int IdleThresholdSeconds = 1800; // 30 minutes
         private const float IdleUsageThreshold = 25.0f;
         private const float ActiveUsageThreshold = 50.0f;
@@ -50,19 +51,12 @@ namespace WinAgent.Services
         private static readonly HttpClient _httpClient = new HttpClient();
         private float? _cachedGpuTotalVramGb = null;
 
-        public SystemMonitorService(IMqttManager mqtt, IDiscoveryService discovery, ILogger<SystemMonitorService> logger)
+        public SystemMonitorService(IMqttManager mqtt, IDiscoveryService discovery, HardwareMonitorService hardwareMonitor, ILogger<SystemMonitorService> logger)
         {
             _mqtt = mqtt;
             _discovery = discovery;
+            _hardwareMonitor = hardwareMonitor;
             _logger = logger;
-
-            _computer = new Computer
-            {
-                IsCpuEnabled = true,
-                IsGpuEnabled = true,
-                IsMemoryEnabled = true
-            };
-            _computer.Open();
 
             SetupUpdateMonitoring();
             SetupDeviceMonitoring();
@@ -138,22 +132,13 @@ namespace WinAgent.Services
 
         public async Task ReportRichEvent(string eventDescription, string eventType, object? attributes = null)
         {
-            var payload = new Dictionary<string, object>
-            {
-                ["event"] = eventDescription,
-                ["event_type"] = eventType,
-                ["machine_name"] = Global.MachineName,
-                ["timestamp"] = DateTime.UtcNow.ToString("O")
-            };
-
+            JsonNode? node = null;
             if (attributes != null)
             {
-                var dict = JsonSerializer.Deserialize<Dictionary<string, object>>(JsonSerializer.Serialize(attributes));
-                if (dict != null)
-                {
-                    foreach (var kv in dict) payload[kv.Key] = kv.Value;
-                }
+                node = JsonSerializer.SerializeToNode(attributes);
             }
+
+            var finalPayload = SystemHelper.BuildAndCleanEventPayload(eventDescription, eventType, node);
 
             bool httpSuccess = false;
             var hassServer = Config.Get("hass-server", "hass_server", "HASS_SERVER");
@@ -165,8 +150,7 @@ namespace WinAgent.Services
                 {
                     using var request = new HttpRequestMessage(HttpMethod.Post, $"{hassServer.TrimEnd('/')}/api/events/pc");
                     request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", hassToken);
-                    var payloadStr = JsonSerializer.Serialize(payload);
-                    request.Content = new StringContent(payloadStr, System.Text.Encoding.UTF8, "application/json");
+                    request.Content = new StringContent(finalPayload, System.Text.Encoding.UTF8, "application/json");
                     var response = await _httpClient.SendAsync(request);
                     if (response.IsSuccessStatusCode)
                     {
@@ -181,7 +165,7 @@ namespace WinAgent.Services
 
             if (!httpSuccess)
             {
-                await _mqtt.EnqueueAsync($"homeassistant/sensor/{_mqtt.UniqueId}_event/state", JsonSerializer.Serialize(payload), false);
+                await _mqtt.EnqueueAsync($"homeassistant/sensor/{_mqtt.UniqueId}_event/state", finalPayload, false);
             }
         }
 
@@ -378,10 +362,11 @@ namespace WinAgent.Services
         {
             try
             {
-                foreach (var hardware in _computer.Hardware) hardware.Update();
+                _hardwareMonitor.Update();
+                var hardwareList = _hardwareMonitor.GetHardware();
                 
-                float cpuUsage = _computer.Hardware.GetMaxSensorValue(HardwareType.Cpu, SensorType.Load, "CPU Total");
-                float gpuUsage = _computer.Hardware.GetMaxGpuSensorValue(SensorType.Load, "GPU Core");
+                float cpuUsage = hardwareList.GetMaxSensorValue(HardwareType.Cpu, SensorType.Load, "CPU Total");
+                float gpuUsage = hardwareList.GetMaxGpuSensorValue(SensorType.Load, "GPU Core");
 
                 if (_isCurrentlyIdle)
                 {
@@ -436,9 +421,20 @@ namespace WinAgent.Services
             // Store deferred publishes so we can patch CPU attrs after the loop
             var deferredPublishes = new System.Collections.Generic.List<(string typeKey, string sensorTopic, string sensorAttrTopic, string hwName, Dictionary<string, object> attrs)>();
             
-            foreach (var hardware in _computer.Hardware)
+            _hardwareMonitor.Update();
+            var hardwareList = _hardwareMonitor.GetHardware();
+
+            foreach (var hardware in hardwareList)
             {
-                hardware.Update();
+                if (hardware.HardwareType != HardwareType.Cpu &&
+                    hardware.HardwareType != HardwareType.Memory &&
+                    hardware.HardwareType != HardwareType.GpuNvidia &&
+                    hardware.HardwareType != HardwareType.GpuAmd &&
+                    hardware.HardwareType != HardwareType.GpuIntel)
+                {
+                    continue;
+                }
+
                 var hwName = hardware.Name;
                 if (hardware.HardwareType == HardwareType.Memory)
                 {
@@ -660,7 +656,6 @@ namespace WinAgent.Services
             _updateWatcher?.Dispose();
             _arrivalWatcher?.Dispose();
             _removalWatcher?.Dispose();
-            _computer.Close();
             await base.StopAsync(cancellationToken);
         }
     }

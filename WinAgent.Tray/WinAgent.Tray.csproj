@@ -7,7 +7,7 @@
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
-    <ApplicationIcon>BlockShutdown.ico</ApplicationIcon>
+    <ApplicationIcon>..\assets\icon.ico</ApplicationIcon>
     <Version>1.2</Version>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
@@ -24,7 +24,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="BlockShutdown.ico">
+    <None Include="..\assets\icon.ico">
+      <Link>icon.ico</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>

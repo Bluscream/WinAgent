@@ -14,6 +14,9 @@ using WinAgent.Services;
 using WinAgent.Utils;
 using Serilog;
 using Microsoft.OpenApi.Models;
+using ModelContextProtocol.Server;
+using ModelContextProtocol.AspNetCore;
+using System.Text.Json;
 
 namespace WinAgent;
 
@@ -94,7 +97,11 @@ public static class Program
             .AddScheme<TokenAuthenticationSchemeOptions, TokenAuthenticationHandler>("Token", options => { });
         builder.Services.AddAuthorization();
         
-        builder.Services.AddControllers();
+        builder.Services.AddControllers()
+            .AddJsonOptions(options =>
+            {
+                options.JsonSerializerOptions.DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull;
+            });
         builder.Services.AddEndpointsApiExplorer();
         builder.Services.AddSwaggerGen(c =>
         {
@@ -127,6 +134,36 @@ public static class Program
         builder.Services.AddSingleton<DeviceService>();
         builder.Services.AddSingleton<ScreenshotService>();
         builder.Services.AddSingleton<MultiMonitorToolService>();
+        builder.Services.AddSingleton<NamedPipeService>();
+        builder.Services.AddSingleton<MemoryMappedFileService>();
+        builder.Services.AddSingleton<ComService>();
+        builder.Services.AddSingleton<AudioService>();
+        builder.Services.AddSingleton<ServiceService>();
+        builder.Services.AddSingleton<UpdateService>();
+        builder.Services.AddSingleton<NotifyService>();
+        builder.Services.AddSingleton<PInvokeService>();
+        builder.Services.AddSingleton<HardwareMonitorService>();
+        builder.Services.AddSingleton<McpService>();
+
+        // Configure CORS
+        builder.Services.AddCors(options =>
+        {
+            options.AddDefaultPolicy(policy =>
+            {
+                policy.AllowAnyOrigin()
+                      .AllowAnyMethod()
+                      .AllowAnyHeader()
+                      .WithExposedHeaders("Content-Type", "Cache-Control", "Last-Event-ID");
+            });
+        });
+
+        // Register MCP Server
+        builder.Services.AddMcpServer()
+            .WithHttpTransport(options =>
+            {
+                options.Stateless = true;
+            })
+            .WithToolsFromAssembly();
 
         // Add Core Services
         builder.Services.AddSingleton<IDiscoveryService, DiscoveryService>();
@@ -195,16 +232,46 @@ public static class Program
             }
             
             // If we are JUST doing setup/service control without starting, exit
-            if (!args.Contains("--run") && !args.Contains("--entity-state"))
+            if (!args.Contains("--run") && !args.Contains("--entity-state") && !args.Contains("--event"))
             {
                 Log.Information("Task complete. Exiting.");
                 return;
             }
         }
 
+        // Handle one-off event firing
+        var eventJson = args.SkipWhile(a => a != "--event").Skip(1).FirstOrDefault();
+        if (eventJson != null && eventJson.StartsWith("-")) eventJson = null;
+
+        if (!string.IsNullOrEmpty(eventJson))
+        {
+            try 
+            {
+                var baseUrl = $"http://127.0.0.1:{port}";
+                var client = new System.Net.Http.HttpClient();
+                client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+                
+                string finalJson = eventJson;
+                try { JsonDocument.Parse(eventJson); }
+                catch { finalJson = JsonSerializer.Serialize(new Dictionary<string, object> { ["event"] = eventJson }); }
+
+                var content = new StringContent(finalJson, System.Text.Encoding.UTF8, "application/json");
+                var resp = client.PostAsync($"{baseUrl}/api/event", content).GetAwaiter().GetResult();
+                if (resp.IsSuccessStatusCode)
+                    Log.Information("Fired event successfully via service API. Exiting.");
+                else
+                    Log.Warning("Failed to fire event via API: {StatusCode}. Is the service running?", resp.StatusCode);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Failed to connect to local service API to fire event.");
+            }
+
+            return;
+        }
+
         // Handle one-off state reporting
         var entityState = args.SkipWhile(a => a != Global.Args.EntityState).Skip(1).FirstOrDefault();
-        // Guard against picking up another flag as the value
         if (entityState != null && entityState.StartsWith("-")) entityState = null;
 
         if (!string.IsNullOrEmpty(entityState))
@@ -250,6 +317,7 @@ public static class Program
         var app = builder.Build();
 
         app.UseRouting();
+        app.UseCors();
         app.UseAuthentication();
         app.UseAuthorization();
 
@@ -261,6 +329,7 @@ public static class Program
         });
 
         app.MapControllers();
+        app.MapMcp("/mcp").RequireAuthorization();
         
         app.MapGet("/", () => Results.Redirect("/docs"));
 

@@ -5,6 +5,8 @@ using System.Text;
 using System.Management;
 using System.Diagnostics;
 using System.Linq;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using WinAgent.Models;
 
 namespace WinAgent.Utils
@@ -305,6 +307,130 @@ namespace WinAgent.Utils
                 errorMessage = ex.Message;
                 return false;
             }
+        }
+
+        public static List<string> GetActiveIpAddresses()
+        {
+            var ips = new List<string>();
+            try
+            {
+                foreach (var ni in System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces())
+                {
+                    if (ni.OperationalStatus == System.Net.NetworkInformation.OperationalStatus.Up && 
+                        ni.NetworkInterfaceType != System.Net.NetworkInformation.NetworkInterfaceType.Loopback)
+                    {
+                        foreach (var ip in ni.GetIPProperties().UnicastAddresses)
+                        {
+                            if (ip.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+                            {
+                                ips.Add(ip.Address.ToString());
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+            return ips;
+        }
+
+        public static JsonNode? CleanJsonNode(JsonNode? node)
+        {
+            if (node == null) return null;
+
+            if (node is JsonObject obj)
+            {
+                var cleanedObj = new JsonObject();
+                foreach (var kv in obj)
+                {
+                    var cleanedVal = CleanJsonNode(kv.Value);
+                    if (cleanedVal != null)
+                    {
+                        if (cleanedVal is JsonObject nestedObj && nestedObj.Count == 0) continue;
+                        if (cleanedVal is JsonArray nestedArr && nestedArr.Count == 0) continue;
+
+                        cleanedObj.Add(kv.Key, cleanedVal.DeepClone());
+                    }
+                }
+                return cleanedObj.Count > 0 ? cleanedObj : null;
+            }
+            else if (node is JsonArray arr)
+            {
+                var cleanedArr = new JsonArray();
+                foreach (var item in arr)
+                {
+                    var cleanedVal = CleanJsonNode(item);
+                    if (cleanedVal != null)
+                    {
+                        if (cleanedVal is JsonObject nestedObj && nestedObj.Count == 0) continue;
+                        if (cleanedVal is JsonArray nestedArr && nestedArr.Count == 0) continue;
+
+                        cleanedArr.Add(cleanedVal.DeepClone());
+                    }
+                }
+                return cleanedArr.Count > 0 ? cleanedArr : null;
+            }
+            else if (node is JsonValue val)
+            {
+                var element = val.GetValue<object>();
+                if (element == null) return null;
+                if (element is string s && string.IsNullOrEmpty(s)) return null;
+                return val.DeepClone();
+            }
+
+            return null;
+        }
+
+        public static string BuildAndCleanEventPayload(string? eventText, string? eventType, JsonNode? additionalAttributes)
+        {
+            var machineObj = new JsonObject
+            {
+                ["name"] = Global.MachineName,
+                ["ips"] = new JsonArray(GetActiveIpAddresses().Select(ip => JsonValue.Create(ip)!).ToArray())
+            };
+
+            var activeUsers = GetLoggedInUsers();
+            var userName = activeUsers.FirstOrDefault() ?? Environment.UserName;
+            var userObj = new JsonObject
+            {
+                ["name"] = userName
+            };
+
+            var eventObj = new JsonObject
+            {
+                ["type"] = eventType,
+                ["text"] = eventText,
+                ["timestamp"] = DateTime.UtcNow.ToString("O")
+            };
+
+            if (additionalAttributes != null)
+            {
+                if (additionalAttributes is JsonObject additionalObj)
+                {
+                    foreach (var kv in additionalObj)
+                    {
+                        var key = kv.Key;
+                        if (key == "event" || key == "event_type" || key == "machine_name" || key == "timestamp" || key == "text" || key == "type")
+                        {
+                            continue;
+                        }
+
+                        if (kv.Value != null)
+                        {
+                            eventObj[key] = kv.Value.DeepClone();
+                        }
+                    }
+                }
+            }
+
+            var root = new JsonObject
+            {
+                ["machine"] = machineObj,
+                ["user"] = userObj,
+                ["event"] = eventObj
+            };
+
+            var cleaned = CleanJsonNode(root);
+            return cleaned?.ToJsonString() ?? "{}";
         }
     }
 }

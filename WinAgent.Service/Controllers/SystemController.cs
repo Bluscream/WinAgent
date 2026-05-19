@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using WinAgent.Services;
 using WinAgent.Models;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Diagnostics;
 using System;
 using WinAgent.Utils;
@@ -264,5 +265,78 @@ public class SystemController : ControllerBase
         }
         
         return Ok(new { status = "success" });
+    }
+
+    [HttpPost("event")]
+    public async Task<IActionResult> FireEvent([FromBody] JsonElement payload)
+    {
+        try
+        {
+            var rawJson = payload.GetRawText();
+            var node = JsonNode.Parse(rawJson);
+            
+            string? eventText = null;
+            string? eventType = null;
+            
+            if (node is JsonObject obj)
+            {
+                if (obj.TryGetPropertyValue("event", out var eTextNode) && eTextNode != null)
+                {
+                    eventText = eTextNode.ToString();
+                }
+                if (obj.TryGetPropertyValue("event_type", out var eTypeNode) && eTypeNode != null)
+                {
+                    eventType = eTypeNode.ToString();
+                }
+            }
+            
+            if (string.IsNullOrEmpty(eventText))
+            {
+                eventText = rawJson;
+            }
+            if (string.IsNullOrEmpty(eventType))
+            {
+                eventType = "Generic CLI Event";
+            }
+
+            var finalPayload = SystemHelper.BuildAndCleanEventPayload(eventText, eventType, node);
+            
+            bool httpSuccess = false;
+            var hassServer = Config.Get("hass-server", "hass_server", "HASS_SERVER");
+            var hassToken = Config.Get("hass-token", "hass_token", "HASS_TOKEN");
+            
+            if (!string.IsNullOrEmpty(hassServer) && !string.IsNullOrEmpty(hassToken))
+            {
+                try
+                {
+                    using var httpClient = new System.Net.Http.HttpClient();
+                    using var request = new HttpRequestMessage(HttpMethod.Post, $"{hassServer.TrimEnd('/')}/api/events/pc");
+                    request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", hassToken);
+                    request.Content = new StringContent(finalPayload, System.Text.Encoding.UTF8, "application/json");
+                    var response = await httpClient.SendAsync(request);
+                    if (response.IsSuccessStatusCode)
+                    {
+                        httpSuccess = true;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning("Failed to post event to HASS API: {Message}", ex.Message);
+                }
+            }
+
+            if (!httpSuccess)
+            {
+                var topic = $"homeassistant/sensor/{_mqtt.UniqueId}_event/state";
+                await _mqtt.EnqueueAsync(topic, finalPayload, false);
+            }
+
+            return Ok(new { status = "success" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error firing event");
+            return StatusCode(500, new { error = ex.Message });
+        }
     }
 }

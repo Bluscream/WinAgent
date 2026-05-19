@@ -104,10 +104,10 @@ public class DeviceService
         }
         catch (Exception ex)
         {
-             return JsonSerializer.Serialize(new { error = ex.Message });
+             return JsonSerializer.Serialize(new { error = ex.Message }, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
         }
 
-        return JsonSerializer.Serialize(devices); // Compact JSON
+        return JsonSerializer.Serialize(devices, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }); // Compact JSON
     }
 
     private string ResolveBestDeviceName(PnPDevice pnpDevice, string wmiName, string pnpClass)

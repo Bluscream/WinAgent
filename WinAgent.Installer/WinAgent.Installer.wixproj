@@ -1,0 +1,15 @@
+<Project Sdk="WixToolset.Sdk/4.0.0">
+  <PropertyGroup>
+    <!-- We generate an x64 package -->
+    <OutputName>WinAgent-Installer</OutputName>
+    <OutputType>Package</OutputType>
+    <Platforms>x64</Platforms>
+  </PropertyGroup>
+
+  <!-- Reference our 3 application projects so MSBuild/WiX publishes them automatically before harvesting -->
+  <ItemGroup>
+    <ProjectReference Include="..\WinAgent.Service\WinAgent.Service.csproj" Publish="true" />
+    <ProjectReference Include="..\WinAgent.Tray\WinAgent.Tray.csproj" Publish="true" />
+    <ProjectReference Include="..\WinAgent.CLI\WinAgent.CLI.csproj" Publish="true" />
+  </ItemGroup>
+</Project>

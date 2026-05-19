@@ -1,0 +1,71 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="WinAgent" Manufacturer="Bluscream" Version="1.2.0" UpgradeCode="2455A1F6-65DF-453D-940E-07498EA34293" Scope="perMachine">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." AllowSameVersionUpgrades="yes" />
+    
+    <MediaTemplate EmbedCab="yes" />
+    
+    <Icon Id="AppIcon" SourceFile="..\assets\icon.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+
+    <!-- Standard directory structure -->
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="WinAgent" />
+    </StandardDirectory>
+
+    <ComponentGroup Id="AppComponents" Directory="INSTALLFOLDER">
+      <!-- 1. WinAgent Service Component (natively registered and controlled) -->
+      <Component Id="ServiceComponent" Guid="418F7B5E-E420-4C9D-B1DF-31620BF0FEF0">
+        <File Id="ServiceExe" Source="!(bindpath.WinAgent.Service)\WinAgent.Service.exe" KeyPath="yes" />
+        
+        <ServiceInstall 
+          Id="ServiceInstaller" 
+          Type="ownProcess" 
+          Name="WinAgent" 
+          DisplayName="WinAgent" 
+          Description="Windows Agent for providing MQTT, MCP and API control" 
+          Start="auto" 
+          ErrorControl="normal" 
+          Account="LocalSystem">
+          <ServiceDependency Id="Tcpip" />
+        </ServiceInstall>
+        
+        <!-- Controls starting, stopping, and deleting the service natively -->
+        <ServiceControl 
+          Id="ServiceController" 
+          Name="WinAgent" 
+          Start="install" 
+          Stop="both" 
+          Remove="uninstall" 
+          Wait="yes" />
+      </Component>
+
+      <!-- 2. appsettings.json Component (NeverOverwrite=yes keeps user configurations safe during updates) -->
+      <Component Id="ConfigComponent" Guid="D27C218B-7756-427D-B27D-FA7D878A9C12" NeverOverwrite="yes">
+        <File Id="AppSettingsJson" Source="!(bindpath.WinAgent.Service)\appsettings.json" KeyPath="yes" />
+      </Component>
+
+      <!-- 3. WinAgent Tray Companion Component (adds startup Registry Run Key) -->
+      <Component Id="TrayComponent" Guid="A76FD242-76A3-41A8-B6B1-39F241775E01">
+        <File Id="TrayExe" Source="!(bindpath.WinAgent.Tray)\WinAgent.Tray.exe" KeyPath="yes" />
+        <RegistryValue Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\Run" Name="WinAgent.Tray" Type="string" Value="&quot;[INSTALLFOLDER]WinAgent.Tray.exe&quot;" />
+      </Component>
+
+      <!-- 4. WinAgent CLI Component (adds INSTALLFOLDER to system environment PATH) -->
+      <Component Id="CliComponent" Guid="98F1D2C6-E715-4D02-A62E-0C49F3010FA2">
+        <File Id="CliExe" Source="!(bindpath.WinAgent.CLI)\winagent.exe" KeyPath="yes" />
+        <Environment Id="AddPath" Action="set" Name="PATH" Value="[INSTALLFOLDER]" Part="last" System="yes" />
+      </Component>
+
+      <!-- 5. Harvested Files (all dependencies, DLLs, and support files from WinAgent.Service publish directory) -->
+      <Component Id="HarvestedFilesComponent" Guid="EFE7C021-392D-4E90-A8BE-C89C1990A405">
+        <!-- Recursively includes all assemblies and assets from WinAgent.Service's publish folder, excluding Service EXE and appsettings.json -->
+        <Files Include="!(bindpath.WinAgent.Service)\**" Exclude="!(bindpath.WinAgent.Service)\WinAgent.Service.exe;!(bindpath.WinAgent.Service)\appsettings.json" />
+      </Component>
+    </ComponentGroup>
+    
+    <!-- Feature definition -->
+    <Feature Id="MainFeature" Title="WinAgent Application Suite" Level="1">
+      <ComponentGroupRef Id="AppComponents" />
+    </Feature>
+  </Package>
+</Wix>

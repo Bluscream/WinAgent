@@ -38,19 +38,17 @@ public class TrayStarterService : BackgroundService
             var currentExe = Process.GetCurrentProcess().MainModule?.FileName;
             if (currentExe != null)
             {
-                var trayName = Path.GetFileNameWithoutExtension(currentExe);
-                var currentPid = Process.GetCurrentProcess().Id;
+                var baseDir = Path.GetDirectoryName(currentExe);
+                var trayExe = Path.Combine(baseDir ?? string.Empty, "WinAgent.Tray.exe");
+                var trayProcessName = "WinAgent.Tray";
 
-                foreach (var p in Process.GetProcessesByName(trayName))
+                foreach (var p in Process.GetProcessesByName(trayProcessName))
                 {
                     try
                     {
-                        if (p.Id != currentPid)
-                        {
-                            _logger.LogInformation("Killing existing tray process: {Pid}", p.Id);
-                            p.Kill();
-                            await p.WaitForExitAsync(stoppingToken);
-                        }
+                        _logger.LogInformation("Killing existing tray process: {Pid}", p.Id);
+                        p.Kill();
+                        await p.WaitForExitAsync(stoppingToken);
                     }
                     catch (Exception ex)
                     {
@@ -58,18 +56,21 @@ public class TrayStarterService : BackgroundService
                     }
                 }
 
-                // Start new tray app
-                var token = Config.Get("token", "-token");
-                var args = $"--tray -token {token}";
-                
-                try
+                if (File.Exists(trayExe))
                 {
-                    await _processService.StartProcess(currentExe, args, asUser: sessionId.ToString(), elevated: true);
-                    _logger.LogInformation("Tray app started in session {SessionId}.", sessionId);
+                    try
+                    {
+                        await _processService.StartProcess(trayExe, string.Empty, asUser: sessionId.ToString(), elevated: true);
+                        _logger.LogInformation("Tray app started in session {SessionId}.", sessionId);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Failed to start tray app in session {SessionId}", sessionId);
+                    }
                 }
-                catch (Exception ex)
+                else
                 {
-                    _logger.LogError(ex, "Failed to start tray app in session {SessionId}", sessionId);
+                    _logger.LogWarning("Tray app executable not found: {TrayExe}. Skipping tray start.", trayExe);
                 }
             }
         }

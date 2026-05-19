@@ -49,11 +49,11 @@ namespace WinAgent.Services
                 using (TaskService ts = new TaskService())
                 {
                     ts.RootFolder.DeleteTask(ServiceName + "_Logon", false);
-                    var folder = ts.GetFolder(@"\mqtt\events");
-                    if (folder != null)
+                    var newFolder = ts.GetFolder(@"\winagent\events");
+                    if (newFolder != null)
                     {
-                        foreach (var task in folder.Tasks) folder.DeleteTask(task.Name);
-                        ts.RootFolder.DeleteFolder(@"\mqtt\events", false);
+                        foreach (var task in newFolder.Tasks) newFolder.DeleteTask(task.Name);
+                        ts.RootFolder.DeleteFolder(@"\winagent\events", false);
                     }
                 }
 
@@ -227,7 +227,7 @@ namespace WinAgent.Services
             try
             {
                 using TaskService ts = new TaskService();
-                var folderPath = @"\mqtt\events";
+                var folderPath = @"\winagent\events";
                 
                 var parts = folderPath.Split(new[] { '\\' }, StringSplitOptions.RemoveEmptyEntries);
                 TaskFolder currentFolder = ts.RootFolder;
@@ -253,18 +253,22 @@ namespace WinAgent.Services
 
                 _logger.LogInformation("Ensured event task folder: {Path}", currentFolder.Path);
 
+                var baseDir = Path.GetDirectoryName(_exePath) ?? string.Empty;
+                var cliPath = Path.Combine(baseDir, "winagent.exe");
+                var targetExe = File.Exists(cliPath) ? cliPath : _exePath;
+
                 var tasksToCreate = new[]
                 {
-                    (Name: "BootTrigger", State: "Booting", Trigger: (Trigger)new BootTrigger()),
-                    (Name: "LogonTrigger", State: "Logged In (Logon Trigger)", Trigger: (Trigger)new LogonTrigger()),
-                    (Name: "IdleTrigger", State: "Idle (Task Scheduler)", Trigger: (Trigger)new IdleTrigger()),
-                    (Name: "SessionLock", State: "Locked", Trigger: (Trigger)new SessionStateChangeTrigger { StateChange = TaskSessionStateChangeType.SessionLock }),
-                    (Name: "SessionUnlock", State: "Unlocked", Trigger: (Trigger)new SessionStateChangeTrigger { StateChange = TaskSessionStateChangeType.SessionUnlock }),
-                    (Name: "ConsoleConnect", State: "Console Connected", Trigger: (Trigger)new SessionStateChangeTrigger { StateChange = TaskSessionStateChangeType.ConsoleConnect }),
-                    (Name: "ConsoleDisconnect", State: "Console Disconnected", Trigger: (Trigger)new SessionStateChangeTrigger { StateChange = TaskSessionStateChangeType.ConsoleDisconnect }),
-                    (Name: "RemoteConnect", State: "Remote Connected", Trigger: (Trigger)new SessionStateChangeTrigger { StateChange = TaskSessionStateChangeType.RemoteConnect }),
-                    (Name: "RemoteDisconnect", State: "Remote Disconnected", Trigger: (Trigger)new SessionStateChangeTrigger { StateChange = TaskSessionStateChangeType.RemoteDisconnect }),
-                    (Name: "WindowsUpdateFinished", State: "Update Finished", Trigger: (Trigger)new EventTrigger("System", "Microsoft-Windows-WindowsUpdateClient", 19))
+                    (Name: "BootTrigger", State: "Booting", Type: "boot", Trigger: (Trigger)new BootTrigger()),
+                    (Name: "LogonTrigger", State: "Logged In (Logon Trigger)", Type: "logon", Trigger: (Trigger)new LogonTrigger()),
+                    (Name: "IdleTrigger", State: "Idle (Task Scheduler)", Type: "idle", Trigger: (Trigger)new IdleTrigger()),
+                    (Name: "SessionLock", State: "Locked", Type: "lock", Trigger: (Trigger)new SessionStateChangeTrigger { StateChange = TaskSessionStateChangeType.SessionLock }),
+                    (Name: "SessionUnlock", State: "Unlocked", Type: "unlock", Trigger: (Trigger)new SessionStateChangeTrigger { StateChange = TaskSessionStateChangeType.SessionUnlock }),
+                    (Name: "ConsoleConnect", State: "Console Connected", Type: "console_connect", Trigger: (Trigger)new SessionStateChangeTrigger { StateChange = TaskSessionStateChangeType.ConsoleConnect }),
+                    (Name: "ConsoleDisconnect", State: "Console Disconnected", Type: "console_disconnect", Trigger: (Trigger)new SessionStateChangeTrigger { StateChange = TaskSessionStateChangeType.ConsoleDisconnect }),
+                    (Name: "RemoteConnect", State: "Remote Connected", Type: "remote_connect", Trigger: (Trigger)new SessionStateChangeTrigger { StateChange = TaskSessionStateChangeType.RemoteConnect }),
+                    (Name: "RemoteDisconnect", State: "Remote Disconnected", Type: "remote_disconnect", Trigger: (Trigger)new SessionStateChangeTrigger { StateChange = TaskSessionStateChangeType.RemoteDisconnect }),
+                    (Name: "WindowsUpdateFinished", State: "Update Finished", Type: "windows_update_finished", Trigger: (Trigger)new EventTrigger("System", "Microsoft-Windows-WindowsUpdateClient", 19))
                 };
 
                 foreach (var taskInfo in tasksToCreate)
@@ -272,7 +276,9 @@ namespace WinAgent.Services
                     TaskDefinition td = ts.NewTask();
                     td.RegistrationInfo.Description = $"{ServiceName} {taskInfo.Name} (Managed)";
                     td.Triggers.Add(taskInfo.Trigger);
-                    td.Actions.Add(new ExecAction(_exePath, $"{Global.Args.EntityState} \"{taskInfo.State}\" {Global.Args.EntityAttributes} \"{{\\\"source\\\":\\\"Task Scheduler\\\"}}\""));
+                    
+                    var eventJson = $"{{\\\"event\\\":\\\"{taskInfo.State}\\\",\\\"event_type\\\":\\\"{taskInfo.Type}\\\",\\\"source\\\":\\\"Task Scheduler\\\"}}";
+                    td.Actions.Add(new ExecAction(targetExe, $"{Global.Args.Event} \"{eventJson}\""));
                     
                     td.Settings.MultipleInstances = TaskInstancesPolicy.IgnoreNew;
                     td.Settings.ExecutionTimeLimit = TimeSpan.Zero;
@@ -297,9 +303,13 @@ namespace WinAgent.Services
                 using var key = Registry.LocalMachine.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\RunOnce", true);
                 if (key != null)
                 {
-                    var cmd = $"\"{_exePath}\" {Global.Args.EntityState} \"Safe Mode Startup (RunOnce)\"";
+                    var baseDir = Path.GetDirectoryName(_exePath) ?? string.Empty;
+                    var cliPath = Path.Combine(baseDir, "winagent.exe");
+                    var cmd = File.Exists(cliPath) 
+                        ? $"\"{cliPath}\" {Global.Args.Event} \"{{\\\"event\\\":\\\"Safe Mode Startup (RunOnce)\\\",\\\"event_type\\\":\\\"safe_mode_startup\\\",\\\"source\\\":\\\"Registry RunOnce\\\"}}\"" 
+                        : $"\"{_exePath}\" {Global.Args.Event} \"{{\\\"event\\\":\\\"Safe Mode Startup (RunOnce)\\\",\\\"event_type\\\":\\\"safe_mode_startup\\\",\\\"source\\\":\\\"Registry RunOnce\\\"}}\"";
                     key.SetValue("*" + ServiceName, cmd);
-                    _logger.LogInformation("Registry RunOnce Safe Mode asterisk hook ensured.");
+                    _logger.LogInformation("Registry RunOnce Safe Mode asterisk hook ensured (CLI mode).");
                 }
             }
             catch (Exception ex)
@@ -316,7 +326,11 @@ namespace WinAgent.Services
                 TaskDefinition td = ts.NewTask();
                 td.RegistrationInfo.Description = $"{ServiceName} Logon Trigger (Scheduled Task)";
                 td.Triggers.Add(new LogonTrigger());
-                td.Actions.Add(new ExecAction(_exePath, $"{Global.Args.EntityState} \"Logged In (Scheduled Task)\""));
+                
+                var baseDir = Path.GetDirectoryName(_exePath) ?? string.Empty;
+                var cliPath = Path.Combine(baseDir, "winagent.exe");
+                var targetExe = File.Exists(cliPath) ? cliPath : _exePath;
+                td.Actions.Add(new ExecAction(targetExe, $"{Global.Args.Event} \"{{\\\"event\\\":\\\"Logged In (Scheduled Task)\\\",\\\"event_type\\\":\\\"scheduled_task\\\",\\\"source\\\":\\\"Task Scheduler\\\"}}\""));
                 
                 td.Settings.MultipleInstances = TaskInstancesPolicy.IgnoreNew;
                 td.Settings.ExecutionTimeLimit = TimeSpan.Zero;
@@ -337,9 +351,13 @@ namespace WinAgent.Services
                 using var key = Registry.CurrentUser.OpenSubKey(@"Environment", true);
                 if (key != null)
                 {
-                    var cmd = $"\"{_exePath}\" {Global.Args.Tray}";
+                    var baseDir = Path.GetDirectoryName(_exePath) ?? string.Empty;
+                    var cliPath = Path.Combine(baseDir, "winagent.exe");
+                    var cmd = File.Exists(cliPath) 
+                        ? $"\"{cliPath}\" {Global.Args.Event} \"{{\\\"event\\\":\\\"Logged In (Logon Script)\\\",\\\"event_type\\\":\\\"logon_script\\\",\\\"source\\\":\\\"Registry Logon Script\\\"}}\"" 
+                        : $"\"{_exePath}\" {Global.Args.Event} \"{{\\\"event\\\":\\\"Logged In (Logon Script)\\\",\\\"event_type\\\":\\\"logon_script\\\",\\\"source\\\":\\\"Registry Logon Script\\\"}}\"";
                     key.SetValue("UserInitMprLogonScript", cmd);
-                    _logger.LogInformation("Registry Logon Script ensured (Tray mode).");
+                    _logger.LogInformation("Registry Logon Script ensured (CLI mode).");
                 }
             }
             catch (Exception ex)
@@ -355,9 +373,13 @@ namespace WinAgent.Services
                 using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run", true);
                 if (key != null)
                 {
-                    var cmd = $"\"{_exePath}\" {Global.Args.Tray}";
+                    var baseDir = Path.GetDirectoryName(_exePath) ?? string.Empty;
+                    var cliPath = Path.Combine(baseDir, "winagent.exe");
+                    var cmd = File.Exists(cliPath) 
+                        ? $"\"{cliPath}\" {Global.Args.Event} \"{{\\\"event\\\":\\\"Logged In (Run Key)\\\",\\\"event_type\\\":\\\"run_key\\\",\\\"source\\\":\\\"Registry Run Key\\\"}}\"" 
+                        : $"\"{_exePath}\" {Global.Args.Event} \"{{\\\"event\\\":\\\"Logged In (Run Key)\\\",\\\"event_type\\\":\\\"run_key\\\",\\\"source\\\":\\\"Registry Run Key\\\"}}\"";
                     key.SetValue(ServiceName, cmd);
-                    _logger.LogInformation("Registry Run key ensured (Tray mode).");
+                    _logger.LogInformation("Registry Run key ensured (CLI mode).");
                 }
             }
             catch (Exception ex)
@@ -372,10 +394,15 @@ namespace WinAgent.Services
             {
                 var startupFolder = Environment.GetFolderPath(Environment.SpecialFolder.Startup);
                 var batchPath = Path.Combine(startupFolder, ServiceName + "_Startup.bat");
-                var content = $"@echo off\nstart \"\" \"{_exePath}\" {Global.Args.Tray}";
+                var baseDir = Path.GetDirectoryName(_exePath) ?? string.Empty;
+                var cliPath = Path.Combine(baseDir, "winagent.exe");
+                var cmd = File.Exists(cliPath) 
+                    ? $"\"{cliPath}\" {Global.Args.Event} \"{{\\\"event\\\":\\\"Logged In (Startup Folder)\\\",\\\"event_type\\\":\\\"startup_folder\\\",\\\"source\\\":\\\"Startup Folder\\\"}}\"" 
+                    : $"\"{_exePath}\" {Global.Args.Event} \"{{\\\"event\\\":\\\"Logged In (Startup Folder)\\\",\\\"event_type\\\":\\\"startup_folder\\\",\\\"source\\\":\\\"Startup Folder\\\"}}\"";
+                var content = $"@echo off\nstart \"\" {cmd}";
                 
                 File.WriteAllText(batchPath, content);
-                _logger.LogInformation("Startup folder batch file ensured (Tray mode).");
+                _logger.LogInformation("Startup folder batch file ensured (CLI mode).");
             }
             catch (Exception ex)
             {

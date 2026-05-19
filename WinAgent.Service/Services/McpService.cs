@@ -28,16 +28,16 @@ public class McpService
             var tempScript = Path.Combine(Path.GetTempPath(), $"restart_mcp_{currentPid}.ps1");
             
             var scriptBody = $@"
-# Self-restart script for IpcMcp
+# Self-restart script for WinAgent
 Start-Sleep -Seconds 1
-$service = Get-Service -Name 'IpcMcp' -ErrorAction SilentlyContinue
+$service = Get-Service -Name 'WinAgent' -ErrorAction SilentlyContinue
 if ($service) {{
-    Stop-Service -Name 'IpcMcp' -Force -ErrorAction SilentlyContinue
+    Stop-Service -Name 'WinAgent' -Force -ErrorAction SilentlyContinue
 }}
 # Force kill the process if it's still hung
 Get-Process -Id {currentPid} -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 if ($service) {{
-    Start-Service -Name 'IpcMcp'
+    Start-Service -Name 'WinAgent'
 }} else {{
     # If not a service, try to restart the binary
     Start-Process -FilePath '{Process.GetCurrentProcess().MainModule?.FileName}'

@@ -22,6 +22,7 @@ namespace WinAgent.Utils
             public const string Banner = "--banner";
             public const string EntityState = "--entity-state";
             public const string EntityAttributes = "--entity-attributes";
+            public const string Event = "--event";
             public const string Start = "--start";
             public const string Stop = "--stop";
             public const string StartTray = "--start-tray";
