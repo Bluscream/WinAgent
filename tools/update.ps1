@@ -82,10 +82,6 @@ function Unlock-CompileFiles {
             if ($path -and (Test-Path $path)) {
                 # Recursively remove any cache files to prevent MSB3101/CS2012 errors
                 Get-ChildItem -Path $path -Filter "*.cache" -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-                
-                # Recursively remove bin and obj folders in references to guarantee no stale build locks
-                Get-ChildItem -Path $path -Directory -Filter "bin" -Recurse -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-                Get-ChildItem -Path $path -Directory -Filter "obj" -Recurse -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
             }
         }
     } catch {
@@ -255,14 +251,17 @@ if ($Build) {
     $CliCsproj = Join-Path $RootDir "WinAgent.CLI\WinAgent.CLI.csproj"
 
     Unlock-CompileFiles
+    Reset-RepositoryPermissions
     dotnet build -c Release $ServiceCsproj -r win-x64 /p:TreatWarningsAsErrors=true /p:UseSharedCompilation=false /p:NodeReuse=false
     if ($LASTEXITCODE -ne 0) { Write-Error "Service build failed."; Exit-Script $LASTEXITCODE }
 
     Unlock-CompileFiles
+    Reset-RepositoryPermissions
     dotnet build -c Release $TrayCsproj -r win-x64 /p:TreatWarningsAsErrors=true /p:UseSharedCompilation=false /p:NodeReuse=false
     if ($LASTEXITCODE -ne 0) { Write-Error "Tray build failed."; Exit-Script $LASTEXITCODE }
 
     Unlock-CompileFiles
+    Reset-RepositoryPermissions
     dotnet build -c Release $CliCsproj -r win-x64 /p:TreatWarningsAsErrors=true /p:UseSharedCompilation=false /p:NodeReuse=false
     if ($LASTEXITCODE -ne 0) { Write-Error "CLI build failed."; Exit-Script $LASTEXITCODE }
 }
@@ -275,13 +274,19 @@ if ($Deploy) {
 
     Write-Host "Publishing C# projects to harvesting directory..." -ForegroundColor Cyan
     Unlock-CompileFiles
-    dotnet publish $ServiceCsproj -c Release -r win-x64 --no-build --self-contained true -p:PublishSingleFile=false -p:ErrorOnDuplicatePublishOutputFiles=false -p:NodeReuse=false -o "$RootDir\WinAgent.Installer\obj\x64\Release\publish\WinAgent.Service"
-    dotnet publish $TrayCsproj -c Release -r win-x64 --no-build --self-contained true -p:PublishSingleFile=false -p:ErrorOnDuplicatePublishOutputFiles=false -p:NodeReuse=false -o "$RootDir\WinAgent.Installer\obj\x64\Release\publish\WinAgent.Tray"
-    dotnet publish $CliCsproj -c Release -r win-x64 --no-build --self-contained true -p:PublishSingleFile=false -p:ErrorOnDuplicatePublishOutputFiles=false -p:NodeReuse=false -o "$RootDir\WinAgent.Installer\obj\x64\Release\publish\WinAgent.CLI"
+    Reset-RepositoryPermissions
+    dotnet publish $ServiceCsproj -c Release -r win-x64 --no-build --self-contained true -p:PublishSingleFile=false -p:ErrorOnDuplicatePublishOutputFiles=false -p:UseSharedCompilation=false -p:NodeReuse=false -o "$RootDir\WinAgent.Installer\obj\x64\Release\publish\WinAgent.Service"
+    Unlock-CompileFiles
+    Reset-RepositoryPermissions
+    dotnet publish $TrayCsproj -c Release -r win-x64 --no-build --self-contained true -p:PublishSingleFile=false -p:ErrorOnDuplicatePublishOutputFiles=false -p:UseSharedCompilation=false -p:NodeReuse=false -o "$RootDir\WinAgent.Installer\obj\x64\Release\publish\WinAgent.Tray"
+    Unlock-CompileFiles
+    Reset-RepositoryPermissions
+    dotnet publish $CliCsproj -c Release -r win-x64 --no-build --self-contained true -p:PublishSingleFile=false -p:ErrorOnDuplicatePublishOutputFiles=false -p:UseSharedCompilation=false -p:NodeReuse=false -o "$RootDir\WinAgent.Installer\obj\x64\Release\publish\WinAgent.CLI"
 
     Write-Host "Building WiX MSI Installer package..." -ForegroundColor Cyan
     Unlock-CompileFiles
-    dotnet build $InstallerProj -c Release -r win-x64 -p:BuildProjectReferences=false -p:NodeReuse=false -o "$PublishDir\installer"
+    Reset-RepositoryPermissions
+    dotnet build $InstallerProj -c Release -r win-x64 -p:BuildProjectReferences=false -p:UseSharedCompilation=false -p:NodeReuse=false -o "$PublishDir\installer"
     
     $MsiPath = Join-Path "$PublishDir\installer" "WinAgent-Installer.msi"
     if (-not (Test-Path $MsiPath)) {
@@ -318,15 +323,21 @@ if ($Publish) {
     $CliCsproj = Join-Path $RootDir "WinAgent.CLI\WinAgent.CLI.csproj"
 
     Unlock-CompileFiles
-    dotnet publish $ServiceCsproj -c Release -r win-x64 --no-build --self-contained true -p:PublishSingleFile=false -p:ErrorOnDuplicatePublishOutputFiles=false -p:NodeReuse=false -o "$PublishDir\shared"
-    dotnet publish $TrayCsproj -c Release -r win-x64 --no-build --self-contained true -p:PublishSingleFile=false -p:ErrorOnDuplicatePublishOutputFiles=false -p:NodeReuse=false -o "$PublishDir\shared"
-    dotnet publish $CliCsproj -c Release -r win-x64 --no-build --self-contained true -p:PublishSingleFile=false -p:ErrorOnDuplicatePublishOutputFiles=false -p:NodeReuse=false -o "$PublishDir\shared"
+    Reset-RepositoryPermissions
+    dotnet publish $ServiceCsproj -c Release -r win-x64 --no-build --self-contained true -p:PublishSingleFile=false -p:ErrorOnDuplicatePublishOutputFiles=false -p:UseSharedCompilation=false -p:NodeReuse=false -o "$PublishDir\shared"
+    Unlock-CompileFiles
+    Reset-RepositoryPermissions
+    dotnet publish $TrayCsproj -c Release -r win-x64 --no-build --self-contained true -p:PublishSingleFile=false -p:ErrorOnDuplicatePublishOutputFiles=false -p:UseSharedCompilation=false -p:NodeReuse=false -o "$PublishDir\shared"
+    Unlock-CompileFiles
+    Reset-RepositoryPermissions
+    dotnet publish $CliCsproj -c Release -r win-x64 --no-build --self-contained true -p:PublishSingleFile=false -p:ErrorOnDuplicatePublishOutputFiles=false -p:UseSharedCompilation=false -p:NodeReuse=false -o "$PublishDir\shared"
 
     # 2. Build the WiX MSI Installer package
     Write-Host "Building WiX MSI Installer..." -ForegroundColor Gray
     $InstallerProj = Join-Path $RootDir "WinAgent.Installer\WinAgent.Installer.wixproj"
     Unlock-CompileFiles
-    dotnet build $InstallerProj -c Release -r win-x64 -p:NodeReuse=false -o "$PublishDir\installer"
+    Reset-RepositoryPermissions
+    dotnet build $InstallerProj -c Release -r win-x64 -p:BuildProjectReferences=false -p:UseSharedCompilation=false -p:NodeReuse=false -o "$PublishDir\installer"
     
     $MsiPath = Join-Path "$PublishDir\installer" "WinAgent-Installer.msi"
 
