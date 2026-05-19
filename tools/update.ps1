@@ -244,7 +244,7 @@ if ($Stop -or $Deploy) {
 }
 
 if ($Build) {
-    Write-Host "Building C# projects (Warnings as Errors)..." -ForegroundColor Cyan
+    Write-Host "Building C# projects as Debug (Warnings as Errors)..." -ForegroundColor Cyan
     
     $ServiceCsproj = Join-Path $RootDir "WinAgent.Service\WinAgent.Service.csproj"
     $TrayCsproj = Join-Path $RootDir "WinAgent.Tray\WinAgent.Tray.csproj"
@@ -252,48 +252,69 @@ if ($Build) {
 
     Unlock-CompileFiles
     Reset-RepositoryPermissions
-    dotnet build -c Release $ServiceCsproj -r win-x64 /p:TreatWarningsAsErrors=true /p:UseSharedCompilation=false /p:NodeReuse=false
-    if ($LASTEXITCODE -ne 0) { Write-Error "Service build failed."; Exit-Script $LASTEXITCODE }
+    dotnet build -c Debug $ServiceCsproj -r win-x64 /p:TreatWarningsAsErrors=true /p:UseSharedCompilation=false /p:NodeReuse=false
+    if ($LASTEXITCODE -ne 0) { Write-Error "Service debug build failed."; Exit-Script $LASTEXITCODE }
 
     Unlock-CompileFiles
     Reset-RepositoryPermissions
-    dotnet build -c Release $TrayCsproj -r win-x64 /p:TreatWarningsAsErrors=true /p:UseSharedCompilation=false /p:NodeReuse=false
-    if ($LASTEXITCODE -ne 0) { Write-Error "Tray build failed."; Exit-Script $LASTEXITCODE }
+    dotnet build -c Debug $TrayCsproj -r win-x64 /p:TreatWarningsAsErrors=true /p:UseSharedCompilation=false /p:NodeReuse=false
+    if ($LASTEXITCODE -ne 0) { Write-Error "Tray debug build failed."; Exit-Script $LASTEXITCODE }
 
     Unlock-CompileFiles
     Reset-RepositoryPermissions
-    dotnet build -c Release $CliCsproj -r win-x64 /p:TreatWarningsAsErrors=true /p:UseSharedCompilation=false /p:NodeReuse=false
-    if ($LASTEXITCODE -ne 0) { Write-Error "CLI build failed."; Exit-Script $LASTEXITCODE }
+    dotnet build -c Debug $CliCsproj -r win-x64 /p:TreatWarningsAsErrors=true /p:UseSharedCompilation=false /p:NodeReuse=false
+    if ($LASTEXITCODE -ne 0) { Write-Error "CLI debug build failed."; Exit-Script $LASTEXITCODE }
 }
 
-if ($Deploy) {
+$MsiPath = Join-Path "$PublishDir\installer" "WinAgent-Installer.msi"
+$newVersion = $null
+
+if ($Publish) {
+    $newVersion = Bump-Version
+    Write-Host "Publishing Release $newVersion to GitHub..." -ForegroundColor Cyan
+    
+    # Git operations
+    git add .
+    git commit -m "v$newVersion"
+    git push
+}
+
+if ($Deploy -or $Publish) {
     $ServiceCsproj = Join-Path $RootDir "WinAgent.Service\WinAgent.Service.csproj"
     $TrayCsproj = Join-Path $RootDir "WinAgent.Tray\WinAgent.Tray.csproj"
     $CliCsproj = Join-Path $RootDir "WinAgent.CLI\WinAgent.CLI.csproj"
     $InstallerProj = Join-Path $RootDir "WinAgent.Installer\WinAgent.Installer.wixproj"
 
-    Write-Host "Publishing C# projects to harvesting directory..." -ForegroundColor Cyan
+    Write-Host "Publishing C# projects as Release to harvesting directory..." -ForegroundColor Cyan
+    
     Unlock-CompileFiles
     Reset-RepositoryPermissions
-    dotnet publish $ServiceCsproj -c Release -r win-x64 --no-build --self-contained true -p:PublishSingleFile=false -p:ErrorOnDuplicatePublishOutputFiles=false -p:UseSharedCompilation=false -p:NodeReuse=false -o "$RootDir\WinAgent.Installer\obj\x64\Release\publish\WinAgent.Service"
+    dotnet publish $ServiceCsproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:ErrorOnDuplicatePublishOutputFiles=false -p:UseSharedCompilation=false -p:NodeReuse=false -o "$RootDir\WinAgent.Installer\obj\x64\Release\publish\WinAgent.Service"
+    if ($LASTEXITCODE -ne 0) { Write-Error "Service release publish failed."; Exit-Script $LASTEXITCODE }
+    
     Unlock-CompileFiles
     Reset-RepositoryPermissions
-    dotnet publish $TrayCsproj -c Release -r win-x64 --no-build --self-contained true -p:PublishSingleFile=false -p:ErrorOnDuplicatePublishOutputFiles=false -p:UseSharedCompilation=false -p:NodeReuse=false -o "$RootDir\WinAgent.Installer\obj\x64\Release\publish\WinAgent.Tray"
+    dotnet publish $TrayCsproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:ErrorOnDuplicatePublishOutputFiles=false -p:UseSharedCompilation=false -p:NodeReuse=false -o "$RootDir\WinAgent.Installer\obj\x64\Release\publish\WinAgent.Tray"
+    if ($LASTEXITCODE -ne 0) { Write-Error "Tray release publish failed."; Exit-Script $LASTEXITCODE }
+
     Unlock-CompileFiles
     Reset-RepositoryPermissions
-    dotnet publish $CliCsproj -c Release -r win-x64 --no-build --self-contained true -p:PublishSingleFile=false -p:ErrorOnDuplicatePublishOutputFiles=false -p:UseSharedCompilation=false -p:NodeReuse=false -o "$RootDir\WinAgent.Installer\obj\x64\Release\publish\WinAgent.CLI"
+    dotnet publish $CliCsproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:ErrorOnDuplicatePublishOutputFiles=false -p:UseSharedCompilation=false -p:NodeReuse=false -o "$RootDir\WinAgent.Installer\obj\x64\Release\publish\WinAgent.CLI"
+    if ($LASTEXITCODE -ne 0) { Write-Error "CLI release publish failed."; Exit-Script $LASTEXITCODE }
 
     Write-Host "Building WiX MSI Installer package..." -ForegroundColor Cyan
     Unlock-CompileFiles
     Reset-RepositoryPermissions
     dotnet build $InstallerProj -c Release -r win-x64 -p:BuildProjectReferences=false -p:UseSharedCompilation=false -p:NodeReuse=false -o "$PublishDir\installer"
+    if ($LASTEXITCODE -ne 0) { Write-Error "Installer build failed."; Exit-Script $LASTEXITCODE }
     
-    $MsiPath = Join-Path "$PublishDir\installer" "WinAgent-Installer.msi"
     if (-not (Test-Path $MsiPath)) {
         Write-Error "CRITICAL: MSI Installer package was not generated."
         Exit-Script 1
     }
+}
 
+if ($Deploy) {
     # Run the MSI installer
     Write-Host "Installing/Updating WinAgent locally via MSI..." -ForegroundColor Cyan
     try {
@@ -308,39 +329,6 @@ if ($Deploy) {
 }
 
 if ($Publish) {
-    $newVersion = Bump-Version
-    Write-Host "Publishing Release $newVersion to GitHub..." -ForegroundColor Cyan
-    
-    # Git operations
-    git add .
-    git commit -m "v$newVersion"
-    git push
-
-    # 1. Publish all projects to harvesting folders
-    Write-Host "Publishing app files to harvesting directory..." -ForegroundColor Gray
-    $ServiceCsproj = Join-Path $RootDir "WinAgent.Service\WinAgent.Service.csproj"
-    $TrayCsproj = Join-Path $RootDir "WinAgent.Tray\WinAgent.Tray.csproj"
-    $CliCsproj = Join-Path $RootDir "WinAgent.CLI\WinAgent.CLI.csproj"
-
-    Unlock-CompileFiles
-    Reset-RepositoryPermissions
-    dotnet publish $ServiceCsproj -c Release -r win-x64 --no-build --self-contained true -p:PublishSingleFile=false -p:ErrorOnDuplicatePublishOutputFiles=false -p:UseSharedCompilation=false -p:NodeReuse=false -o "$RootDir\WinAgent.Installer\obj\x64\Release\publish\WinAgent.Service"
-    Unlock-CompileFiles
-    Reset-RepositoryPermissions
-    dotnet publish $TrayCsproj -c Release -r win-x64 --no-build --self-contained true -p:PublishSingleFile=false -p:ErrorOnDuplicatePublishOutputFiles=false -p:UseSharedCompilation=false -p:NodeReuse=false -o "$RootDir\WinAgent.Installer\obj\x64\Release\publish\WinAgent.Tray"
-    Unlock-CompileFiles
-    Reset-RepositoryPermissions
-    dotnet publish $CliCsproj -c Release -r win-x64 --no-build --self-contained true -p:PublishSingleFile=false -p:ErrorOnDuplicatePublishOutputFiles=false -p:UseSharedCompilation=false -p:NodeReuse=false -o "$RootDir\WinAgent.Installer\obj\x64\Release\publish\WinAgent.CLI"
-
-    # 2. Build the WiX MSI Installer package
-    Write-Host "Building WiX MSI Installer..." -ForegroundColor Gray
-    $InstallerProj = Join-Path $RootDir "WinAgent.Installer\WinAgent.Installer.wixproj"
-    Unlock-CompileFiles
-    Reset-RepositoryPermissions
-    dotnet build $InstallerProj -c Release -r win-x64 -p:BuildProjectReferences=false -p:UseSharedCompilation=false -p:NodeReuse=false -o "$PublishDir\installer"
-    
-    $MsiPath = Join-Path "$PublishDir\installer" "WinAgent-Installer.msi"
-
     # 3. Consolidate published files to shared directory for portable Scoop ZIP
     Write-Host "Consolidating app files to shared directory for portable distribution..." -ForegroundColor Gray
     $SharedOutputDir = "$PublishDir\shared"
@@ -360,6 +348,7 @@ if ($Publish) {
 
     # 5. Attach to GitHub release
     Write-Host "Creating GitHub Release..." -ForegroundColor Gray
+    if (-not $newVersion) { $newVersion = "2.0.0" }
     gh release create "v$newVersion" $MsiPath $ZipPath --title "Release v$newVersion" --notes "Automated release via update.ps1 with WiX Installer (MSI) and Portable ZIP"
 }
 
