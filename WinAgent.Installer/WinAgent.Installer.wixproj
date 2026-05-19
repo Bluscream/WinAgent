@@ -5,6 +5,7 @@
     <OutputType>Package</OutputType>
     <Platform>x64</Platform>
     <Platforms>x64</Platforms>
+    <SuppressIces>ICE61</SuppressIces>
   </PropertyGroup>
 
   <!-- Reference our 3 application projects so MSBuild/WiX publishes them automatically before harvesting -->

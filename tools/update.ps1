@@ -285,30 +285,25 @@ if ($Deploy -or $Publish) {
     $CliCsproj = Join-Path $RootDir "WinAgent.CLI\WinAgent.CLI.csproj"
     $InstallerProj = Join-Path $RootDir "WinAgent.Installer\WinAgent.Installer.wixproj"
 
-    Write-Host "Publishing C# projects as Release to harvesting directory..." -ForegroundColor Cyan
+    Write-Host "Building WiX MSI Installer (and publishing all C# dependencies) as Release..." -ForegroundColor Cyan
     
     Unlock-CompileFiles
     Reset-RepositoryPermissions
-    dotnet publish $ServiceCsproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:ErrorOnDuplicatePublishOutputFiles=false -p:UseSharedCompilation=false -p:NodeReuse=false -o "$RootDir\WinAgent.Installer\obj\x64\Release\publish\WinAgent.Service"
-    if ($LASTEXITCODE -ne 0) { Write-Error "Service release publish failed."; Exit-Script $LASTEXITCODE }
-    
-    Unlock-CompileFiles
-    Reset-RepositoryPermissions
-    dotnet publish $TrayCsproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:ErrorOnDuplicatePublishOutputFiles=false -p:UseSharedCompilation=false -p:NodeReuse=false -o "$RootDir\WinAgent.Installer\obj\x64\Release\publish\WinAgent.Tray"
-    if ($LASTEXITCODE -ne 0) { Write-Error "Tray release publish failed."; Exit-Script $LASTEXITCODE }
-
-    Unlock-CompileFiles
-    Reset-RepositoryPermissions
-    dotnet publish $CliCsproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:ErrorOnDuplicatePublishOutputFiles=false -p:UseSharedCompilation=false -p:NodeReuse=false -o "$RootDir\WinAgent.Installer\obj\x64\Release\publish\WinAgent.CLI"
-    if ($LASTEXITCODE -ne 0) { Write-Error "CLI release publish failed."; Exit-Script $LASTEXITCODE }
-
-    Write-Host "Building WiX MSI Installer package..." -ForegroundColor Cyan
-    Unlock-CompileFiles
-    Reset-RepositoryPermissions
-    dotnet build $InstallerProj -c Release -r win-x64 -p:BuildProjectReferences=false -p:UseSharedCompilation=false -p:NodeReuse=false -o "$PublishDir\installer"
+    dotnet build $InstallerProj -c Release -r win-x64 -m:1 -p:SelfContained=true -p:PublishSingleFile=false -p:ErrorOnDuplicatePublishOutputFiles=false -p:UseSharedCompilation=false -p:NodeReuse=false
     if ($LASTEXITCODE -ne 0) { Write-Error "Installer build failed."; Exit-Script $LASTEXITCODE }
     
-    if (-not (Test-Path $MsiPath)) {
+    # WiX outputs the MSI to its bin directory. We need to copy it to the expected $MsiPath.
+    $InstallerOutDir = Split-Path $MsiPath -Parent
+    if (-not (Test-Path $InstallerOutDir)) { New-Item -ItemType Directory -Path $InstallerOutDir -Force | Out-Null }
+    
+    $SourceMsi = Join-Path $RootDir "WinAgent.Installer\bin\x64\Release\WinAgent-Installer.msi"
+    if (-not (Test-Path $SourceMsi)) {
+        $SourceMsi = Join-Path $RootDir "WinAgent.Installer\bin\Release\WinAgent-Installer.msi"
+    }
+    
+    if (Test-Path $SourceMsi) {
+        Copy-Item -Path $SourceMsi -Destination $MsiPath -Force
+    } else {
         Write-Error "CRITICAL: MSI Installer package was not generated."
         Exit-Script 1
     }
