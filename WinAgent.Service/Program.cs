@@ -41,6 +41,7 @@ public static class Program
         Directory.SetCurrentDirectory(baseDir);
 
         var builder = WebApplication.CreateBuilder(args);
+        builder.Host.UseWindowsService();
         builder.Configuration.AddJsonFile("appsettings.json", optional: true, reloadOnChange: true);
         builder.Configuration.AddJsonFile("WinAgent.json", optional: true, reloadOnChange: true);
         builder.Configuration.AddEnvironmentVariables();

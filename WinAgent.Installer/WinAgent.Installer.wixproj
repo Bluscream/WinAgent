@@ -8,10 +8,13 @@
     <SuppressIces>ICE61</SuppressIces>
   </PropertyGroup>
 
-  <!-- Reference our 3 application projects so MSBuild/WiX publishes them automatically before harvesting -->
   <ItemGroup>
-    <ProjectReference Include="..\WinAgent.Service\WinAgent.Service.csproj" Publish="true" />
-    <ProjectReference Include="..\WinAgent.Tray\WinAgent.Tray.csproj" Publish="true" />
-    <ProjectReference Include="..\WinAgent.CLI\WinAgent.CLI.csproj" Publish="true" />
+    <ProjectReference Include="..\WinAgent.Service\WinAgent.Service.csproj" />
+    <ProjectReference Include="..\WinAgent.Tray\WinAgent.Tray.csproj" />
+    <ProjectReference Include="..\WinAgent.CLI\WinAgent.CLI.csproj" />
   </ItemGroup>
+
+  <PropertyGroup>
+    <DefineConstants>ServicePublishDir=..\WinAgent.Service\bin\Release\net9.0-windows10.0.19041.0\win-x64\publish;TrayPublishDir=..\WinAgent.Tray\bin\Release\net9.0-windows10.0.19041.0\win-x64\publish;CliPublishDir=..\WinAgent.CLI\bin\Release\net9.0-windows10.0.19041.0\win-x64\publish</DefineConstants>
+  </PropertyGroup>
 </Project>

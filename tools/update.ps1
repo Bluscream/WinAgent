@@ -266,16 +266,18 @@ if ($Publish) {
 }
 
 if ($Deploy -or $Publish) {
-    $ServiceCsproj = Join-Path $RootDir "WinAgent.Service\WinAgent.Service.csproj"
-    $TrayCsproj = Join-Path $RootDir "WinAgent.Tray\WinAgent.Tray.csproj"
-    $CliCsproj = Join-Path $RootDir "WinAgent.CLI\WinAgent.CLI.csproj"
     $InstallerProj = Join-Path $RootDir "WinAgent.Installer\WinAgent.Installer.wixproj"
 
-    Write-Host "Building WiX MSI Installer (and publishing all C# dependencies) as Release..." -ForegroundColor Cyan
-    
+    Write-Host "Publishing all C# projects in the solution as Release (Single Pass)..." -ForegroundColor Cyan
     Unlock-CompileFiles
     Reset-RepositoryPermissions
-    dotnet build $InstallerProj -c Release -r win-x64 -m:1 -p:SelfContained=true -p:PublishSingleFile=false -p:ErrorOnDuplicatePublishOutputFiles=false -p:UseSharedCompilation=false -p:NodeReuse=false
+    dotnet publish "$RootDir\WinAgent.slnx" -c Release -r win-x64 --self-contained -p:PublishSingleFile=false -p:ErrorOnDuplicatePublishOutputFiles=false -p:UseSharedCompilation=false -p:NodeReuse=false
+    if ($LASTEXITCODE -ne 0) { Write-Error "Solution publish failed."; Exit-Script $LASTEXITCODE }
+
+    Write-Host "Building WiX MSI Installer as Release..." -ForegroundColor Cyan
+    Unlock-CompileFiles
+    Reset-RepositoryPermissions
+    dotnet build $InstallerProj -c Release
     if ($LASTEXITCODE -ne 0) { Write-Error "Installer build failed."; Exit-Script $LASTEXITCODE }
     
     # WiX outputs the MSI to its bin directory. We need to copy it to the expected $MsiPath.
@@ -288,7 +290,22 @@ if ($Deploy -or $Publish) {
     }
     
     if (Test-Path $SourceMsi) {
-        Copy-Item -Path $SourceMsi -Destination $MsiPath -Force
+        $Copied = $false
+        for ($i = 1; $i -le 5; $i++) {
+            try {
+                if (Test-Path $MsiPath) { Remove-Item $MsiPath -Force -ErrorAction Stop }
+                Copy-Item -Path $SourceMsi -Destination $MsiPath -Force -ErrorAction Stop
+                $Copied = $true
+                break
+            } catch {
+                Write-Host "Destination MSI locked, retrying in 1s ($i/5)..." -ForegroundColor Yellow
+                Start-Sleep -Seconds 1
+            }
+        }
+        if (-not $Copied) {
+            Write-Error "CRITICAL: Failed to copy MSI to destination because it is locked."
+            Exit-Script 1
+        }
     } else {
         Write-Error "CRITICAL: MSI Installer package was not generated."
         Exit-Script 1
@@ -317,9 +334,9 @@ if ($Publish) {
     New-Item -ItemType Directory -Path $SharedOutputDir -Force | Out-Null
     
     # Copy from harvesting directories to the shared portable folder
-    Copy-Item -Path "$RootDir\WinAgent.Installer\obj\x64\Release\publish\WinAgent.Service\*" -Destination $SharedOutputDir -Recurse -Force -ErrorAction SilentlyContinue
-    Copy-Item -Path "$RootDir\WinAgent.Installer\obj\x64\Release\publish\WinAgent.Tray\*" -Destination $SharedOutputDir -Recurse -Force -ErrorAction SilentlyContinue
-    Copy-Item -Path "$RootDir\WinAgent.Installer\obj\x64\Release\publish\WinAgent.CLI\*" -Destination $SharedOutputDir -Recurse -Force -ErrorAction SilentlyContinue
+    Copy-Item -Path "$RootDir\WinAgent.Service\bin\Release\net9.0-windows10.0.19041.0\win-x64\publish\*" -Destination $SharedOutputDir -Recurse -Force -ErrorAction SilentlyContinue
+    Copy-Item -Path "$RootDir\WinAgent.Tray\bin\Release\net9.0-windows10.0.19041.0\win-x64\publish\*" -Destination $SharedOutputDir -Recurse -Force -ErrorAction SilentlyContinue
+    Copy-Item -Path "$RootDir\WinAgent.CLI\bin\Release\net9.0-windows10.0.19041.0\win-x64\publish\*" -Destination $SharedOutputDir -Recurse -Force -ErrorAction SilentlyContinue
 
     # 4. Create companion ZIP archive for Scoop
     Write-Host "Creating companion ZIP archive..." -ForegroundColor Gray
