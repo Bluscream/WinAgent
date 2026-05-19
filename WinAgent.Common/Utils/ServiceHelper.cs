@@ -9,6 +9,7 @@ namespace WinAgent.Utils
         private const uint SC_MANAGER_ALL_ACCESS = 0xF003F;
         private const uint SERVICE_ALL_ACCESS = 0xF01FF;
         private const uint SERVICE_WIN32_OWN_PROCESS = 0x00000010;
+        private const uint SERVICE_INTERACTIVE_PROCESS = 0x00000100;
         private const uint SERVICE_AUTO_START = 0x00000002;
         private const uint SERVICE_ERROR_NORMAL = 0x00000001;
         private const uint SERVICE_CONTROL_STOP = 0x00000001;
@@ -115,7 +116,7 @@ namespace WinAgent.Utils
                     serviceName,
                     displayName,
                     SERVICE_ALL_ACCESS,
-                    SERVICE_WIN32_OWN_PROCESS,
+                    SERVICE_WIN32_OWN_PROCESS | SERVICE_INTERACTIVE_PROCESS,
                     SERVICE_AUTO_START,
                     SERVICE_ERROR_NORMAL,
                     binaryPath,
@@ -152,7 +153,7 @@ namespace WinAgent.Utils
                 {
                     if (!ChangeServiceConfig(
                         svc,
-                        SERVICE_NO_CHANGE,
+                        SERVICE_WIN32_OWN_PROCESS | SERVICE_INTERACTIVE_PROCESS,
                         SERVICE_NO_CHANGE,
                         SERVICE_NO_CHANGE,
                         binaryPath,

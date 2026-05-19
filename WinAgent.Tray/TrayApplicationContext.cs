@@ -166,12 +166,18 @@ public class TrayApplicationContext : ApplicationContext
         devicesMenu.Image = GetSystemIcon(Shell32Path, 172); // Hardware/Device Manager
         devicesMenu.DropDownOpening += async (s, e) => await PopulateDevicesMenu(devicesMenu);
 
+        // 4. Sensors Submenu
+        var sensorsMenu = new ToolStripMenuItem("Sensors");
+        sensorsMenu.Image = GetSystemIcon(Shell32Path, 23); // CPU / Chip
+        sensorsMenu.DropDownOpening += async (s, e) => await PopulateSensorsMenu(sensorsMenu);
+
         // Add to main context menu
         contextMenu.Items.Add(serviceToggleItem);
         contextMenu.Items.Add(new ToolStripSeparator());
         contextMenu.Items.Add(powerMenu);
         contextMenu.Items.Add(powerProfilesMenu);
         contextMenu.Items.Add(devicesMenu);
+        contextMenu.Items.Add(sensorsMenu);
         contextMenu.Items.Add(new ToolStripSeparator());
         contextMenu.Items.Add(setupPersistenceItem);
         contextMenu.Items.Add(new ToolStripSeparator());
@@ -735,6 +741,184 @@ public class TrayApplicationContext : ApplicationContext
 
         // Generic fallback: Battery cylinder
         return GetSystemIcon(PowerCplPath, 1) ?? GetSystemIcon(Shell32Path, 20);
+    }
+
+    private class SensorDto
+    {
+        public string Identifier { get; set; } = "";
+        public string Name { get; set; } = "";
+        public float? Value { get; set; }
+        public float? Min { get; set; }
+        public float? Max { get; set; }
+        public string Unit { get; set; } = "";
+        public string Formatted { get; set; } = "";
+    }
+
+    private class HardwareSensorsDto
+    {
+        public string Name { get; set; } = "";
+        public string Type { get; set; } = "";
+        public Dictionary<string, List<SensorDto>> Sensors { get; set; } = new();
+    }
+
+    private bool _isPopulatingSensors = false;
+    private async Task PopulateSensorsMenu(ToolStripMenuItem sensorsMenuItem)
+    {
+        if (_isPopulatingSensors) return;
+        _isPopulatingSensors = true;
+
+        sensorsMenuItem.DropDownItems.Clear();
+        var loadingItem = new ToolStripMenuItem("Loading...") { Enabled = false };
+        sensorsMenuItem.DropDownItems.Add(loadingItem);
+
+        try
+        {
+            var resp = await _httpClient.GetAsync($"{_baseUrl}/api/sensors");
+            if (!resp.IsSuccessStatusCode)
+            {
+                loadingItem.Text = "Failed to load sensors.";
+                return;
+            }
+
+            var json = await resp.Content.ReadAsStringAsync();
+            var hardwareDict = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, HardwareSensorsDto>>(json, new System.Text.Json.JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            });
+
+            if (hardwareDict == null || hardwareDict.Count == 0)
+            {
+                loadingItem.Text = "No sensors found.";
+                return;
+            }
+
+            sensorsMenuItem.DropDownItems.Clear();
+
+            // Sort hardware by type or name
+            var sortedHardware = hardwareDict.Values.OrderBy(h => h.Type).ThenBy(h => h.Name);
+
+            foreach (var hw in sortedHardware)
+            {
+                var hwMenu = new ToolStripMenuItem(hw.Name);
+                hwMenu.Image = GetHardwareIcon(hw.Type);
+
+                if (hw.Sensors == null || hw.Sensors.Count == 0)
+                {
+                    hwMenu.DropDownItems.Add(new ToolStripMenuItem("No active sensors") { Enabled = false });
+                    sensorsMenuItem.DropDownItems.Add(hwMenu);
+                    continue;
+                }
+
+                bool isFirstGroup = true;
+                foreach (var sensorTypeGroup in hw.Sensors.OrderBy(g => g.Key))
+                {
+                    if (!isFirstGroup)
+                    {
+                        hwMenu.DropDownItems.Add(new ToolStripSeparator());
+                    }
+                    isFirstGroup = false;
+
+                    var headerItem = new ToolStripMenuItem(sensorTypeGroup.Key) { Enabled = false };
+                    headerItem.Font = new Font(headerItem.Font, FontStyle.Bold);
+                    hwMenu.DropDownItems.Add(headerItem);
+
+                    foreach (var sensor in sensorTypeGroup.Value.OrderBy(s => s.Name))
+                    {
+                        string sensorLabel = $"{sensor.Name}: {sensor.Formatted}";
+                        var sensorItem = new ToolStripMenuItem(sensorLabel);
+                        sensorItem.Image = GetSensorTypeIcon(sensorTypeGroup.Key);
+
+                        var sName = sensor.Name;
+                        var sFormatted = sensor.Formatted;
+                        var sMin = sensor.Min;
+                        var sMax = sensor.Max;
+                        var sUnit = sensor.Unit;
+                        var sId = sensor.Identifier;
+                        var hwName = hw.Name;
+
+                        sensorItem.Click += (s, ev) =>
+                        {
+                            string heading = $"{sName} Sensor Details";
+                            string detailsStr = $"Sensor Name: {sName}\n" +
+                                                $"Hardware: {hwName}\n" +
+                                                $"Identifier: {sId}\n\n" +
+                                                $"Current Value: {sFormatted}\n" +
+                                                $"Minimum Value: {(sMin.HasValue ? $"{sMin.Value:F1}{sUnit}" : "N/A")}\n" +
+                                                $"Maximum Value: {(sMax.HasValue ? $"{sMax.Value:F1}{sUnit}" : "N/A")}";
+
+                            try
+                            {
+                                Clipboard.SetText(sFormatted);
+                            }
+                            catch { }
+
+                            var thread = new Thread(() =>
+                            {
+                                Modern_Windows_Message_Box_Generator.CLI.Program.Main(new[] { 
+                                    "--messagebox", 
+                                    "--title", "WinAgent", 
+                                    "--heading", heading, 
+                                    "--message", $"Current value is {sFormatted} (Copied to Clipboard).", 
+                                    "--icon", "shieldgreen",
+                                    "--details", detailsStr
+                                }).Wait();
+                            });
+                            thread.SetApartmentState(ApartmentState.STA);
+                            thread.Start();
+                        };
+
+                        hwMenu.DropDownItems.Add(sensorItem);
+                    }
+                }
+
+                sensorsMenuItem.DropDownItems.Add(hwMenu);
+            }
+        }
+        catch (Exception ex)
+        {
+            sensorsMenuItem.DropDownItems.Clear();
+            sensorsMenuItem.DropDownItems.Add(new ToolStripMenuItem($"Error: {ex.Message}") { Enabled = false });
+        }
+        finally
+        {
+            _isPopulatingSensors = false;
+        }
+    }
+
+    private static Image? GetHardwareIcon(string hwType)
+    {
+        string typeLower = hwType.ToLowerInvariant();
+        int index = typeLower switch
+        {
+            "cpu" => 263,
+            "gpunvidia" or "gpuamd" or "gpuintel" or "gpu" => 16,
+            "memory" => 263,
+            "storage" => 15,
+            "network" => 9,
+            "battery" => 20,
+            "motherboard" => 172,
+            "superio" => 18,
+            _ => 18
+        };
+        return GetSystemIcon(Shell32Path, index);
+    }
+
+    private static Image? GetSensorTypeIcon(string sensorType)
+    {
+        int index = sensorType.ToLowerInvariant() switch
+        {
+            "temperature" => 238,
+            "load" => 72,
+            "clock" => 219,
+            "voltage" => 27,
+            "power" => 27,
+            "fan" => 238,
+            "control" => 219,
+            "data" or "smalldata" => 11,
+            "throughput" => 9,
+            _ => 172
+        };
+        return GetSystemIcon(Shell32Path, index);
     }
 }
 

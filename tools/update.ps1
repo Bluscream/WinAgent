@@ -9,11 +9,43 @@ param (
     [string]$DeployPath = "D:\Scripts\WinAgent.Service.exe"
 )
 
+# Self-elevate script if not running as Administrator
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $isAdmin) {
+    Write-Host "Requesting Administrator privileges..." -ForegroundColor Yellow
+    $passedArgs = @()
+    foreach ($key in $PSBoundParameters.Keys) {
+        $val = $PSBoundParameters[$key]
+        if ($val -is [switch]) {
+            if ($val) { $passedArgs += "-$key" }
+        } else {
+            $passedArgs += "-$key `"$val`""
+        }
+    }
+    $passedArgs += $args
+    Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" $passedArgs" -Verb RunAs
+    exit
+}
+
 $RootDir = Split-Path -Parent $PSScriptRoot
 $ConfigPath = Join-Path $RootDir "appsettings.json"
 
+function Reset-RepositoryPermissions {
+    Write-Host "Securing workspace permissions to prevent SYSTEM ownership lockouts..." -ForegroundColor Gray
+    try {
+        # Take ownership of the repository directory and subdirectories for Administrators
+        takeown /F "$RootDir" /R /A /D Y *>$null
+        # Grant Full Control with inheritance to Administrators and Users/Everyone
+        icacls "$RootDir" /grant Administrators:(OI)(CI)F /T /C /Q *>$null
+        icacls "$RootDir" /grant Everyone:(OI)(CI)F /T /C /Q *>$null
+    } catch {
+        Write-Warning "Could not fully reset permissions: $_"
+    }
+}
+
 # Helper for clean exits with log transcripts
 function Exit-Script ($code = 0) {
+    Reset-RepositoryPermissions
     Stop-Transcript -ErrorAction SilentlyContinue
     exit $code
 }
@@ -64,6 +96,9 @@ Write-Host "Target Deployment Directory: $DeployDir" -ForegroundColor Gray
 $PublishDir = Join-Path $RootDir "publish"
 $ServiceName = "WinAgent"
 
+# Clean up permissions before building/cleaning to ensure we can overwrite everything
+Reset-RepositoryPermissions
+
 function Bump-Version {
     $ServiceCsproj = Join-Path $RootDir "WinAgent.Service\WinAgent.Service.csproj"
     $TrayCsproj = Join-Path $RootDir "WinAgent.Tray\WinAgent.Tray.csproj"
@@ -113,10 +148,10 @@ if ($Stop -or $Deploy) {
         $ServiceExePath = "C:\Program Files\WinAgent\WinAgent.Service.exe"
     }
     if (Test-Path $ServiceExePath) {
-        sudo $ServiceExePath --stop
+        & $ServiceExePath --stop
     } else {
         if (Get-Service $ServiceName -ErrorAction SilentlyContinue) {
-            sudo sc.exe stop $ServiceName
+            sc.exe stop $ServiceName
             Start-Sleep -Seconds 2
         }
     }
@@ -125,6 +160,8 @@ if ($Stop -or $Deploy) {
     Get-Process WinAgent.Service -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
     Get-Process WinAgent.Tray -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
     Get-Process winagent -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    Get-Process SoundSwitch -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    Get-Process SoundSwitch.Banner -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
     Write-Host "Waiting for file locks to release on all binaries..." -ForegroundColor Gray
     $retry = 10
@@ -136,6 +173,12 @@ if ($Stop -or $Deploy) {
         "C:\Program Files\WinAgent\WinAgent.Tray.exe",
         "C:\Program Files\WinAgent\winagent.exe"
     )
+    
+    # Dynamically find compiled SoundSwitch DLLs and EXEs to check for file locks
+    $SoundSwitchFiles = Get-ChildItem -Path (Join-Path $RootDir ".references") -Include "SoundSwitch.*.dll","SoundSwitch.*.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName
+    if ($SoundSwitchFiles) {
+        $FilesToCheck += $SoundSwitchFiles
+    }
     while ($retry -gt 0) {
         $locked = $false
         foreach ($file in $FilesToCheck) {
@@ -157,7 +200,8 @@ if ($Stop -or $Deploy) {
 if ($Build) {
     dotnet build-server shutdown | Out-Null
     Write-Host "Building solution (Warnings as Errors)..." -ForegroundColor Cyan
-    dotnet build -c Release $RootDir /p:TreatWarningsAsErrors=true /p:UseSharedCompilation=false
+    $SolutionPath = Join-Path $RootDir "WinAgent.slnx"
+    dotnet build -c Release $SolutionPath /p:TreatWarningsAsErrors=true /p:UseSharedCompilation=false
     if ($LASTEXITCODE -ne 0) {
         Write-Error "Build failed with errors or warnings."
         Exit-Script $LASTEXITCODE
@@ -238,7 +282,10 @@ if ($Publish) {
 
 if ($Install) {
     Write-Host "Registering service and persistence via the agent itself..." -ForegroundColor Cyan
-    $TargetServiceExe = Join-Path $DeployDir "WinAgent.Service.exe"
+    $TargetServiceExe = Join-Path "C:\Program Files\WinAgent" "WinAgent.Service.exe"
+    if (-not (Test-Path $TargetServiceExe)) {
+        $TargetServiceExe = Join-Path $DeployDir "WinAgent.Service.exe"
+    }
     if (-not (Test-Path $TargetServiceExe)) {
         $TargetServiceExe = Join-Path "$PublishDir\shared" "WinAgent.Service.exe"
     }
@@ -249,20 +296,26 @@ if ($Install) {
     if ($Start) { $InstallArgs += "--start" }
     if ($StartTray) { $InstallArgs += "--start-tray" }
     
-    sudo $TargetServiceExe $InstallArgs
+    & $TargetServiceExe $InstallArgs
 }
 
 if ($Start -and -not $Install) {
     Write-Host "Starting WinAgent Service..." -ForegroundColor Cyan
-    $TargetServiceExe = Join-Path $DeployDir "WinAgent.Service.exe"
+    $TargetServiceExe = Join-Path "C:\Program Files\WinAgent" "WinAgent.Service.exe"
+    if (-not (Test-Path $TargetServiceExe)) {
+        $TargetServiceExe = Join-Path $DeployDir "WinAgent.Service.exe"
+    }
     if (-not (Test-Path $TargetServiceExe)) {
         $TargetServiceExe = Join-Path "$PublishDir\shared" "WinAgent.Service.exe"
     }
-    sudo $TargetServiceExe --start
+    & $TargetServiceExe --start
     
     if (-not $StartTray) {
         Start-Sleep -Seconds 2
-        $TrayExePath = Join-Path $DeployDir "WinAgent.Tray.exe"
+        $TrayExePath = Join-Path "C:\Program Files\WinAgent" "WinAgent.Tray.exe"
+        if (-not (Test-Path $TrayExePath)) {
+            $TrayExePath = Join-Path $DeployDir "WinAgent.Tray.exe"
+        }
         if (-not (Test-Path $TrayExePath)) {
             $TrayExePath = Join-Path "$PublishDir\shared" "WinAgent.Tray.exe"
         }

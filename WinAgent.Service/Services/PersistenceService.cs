@@ -192,22 +192,39 @@ namespace WinAgent.Services
             }
         }
 
+        private void RunCommandLine(string executable, string arguments)
+        {
+            try
+            {
+                using var process = new Process
+                {
+                    StartInfo = new ProcessStartInfo
+                    {
+                        FileName = executable,
+                        Arguments = arguments,
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true
+                    }
+                };
+                process.Start();
+                process.WaitForExit();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to run command {Executable} {Arguments}", executable, arguments);
+            }
+        }
+
         private void RunNetsh(string arguments)
         {
-            using var process = new Process
-            {
-                StartInfo = new ProcessStartInfo
-                {
-                    FileName = "netsh",
-                    Arguments = arguments,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true
-                }
-            };
-            process.Start();
-            process.WaitForExit();
+            RunCommandLine("netsh", arguments);
+        }
+
+        private void RunSc(string arguments)
+        {
+            RunCommandLine("sc.exe", arguments);
         }
 
         private void EnsureServiceInstalled()
@@ -233,6 +250,9 @@ namespace WinAgent.Services
                     ServiceHelper.UpdateServiceBinaryPath(ServiceName, binPath);
                 }
 
+                // Configure recovery options: restart service on 1st & 2nd failures after 15 mins (900000 ms), reset count after 7 days (604800 s)
+                _logger.LogInformation("Ensuring service failure recovery options...");
+                RunSc($"failure {ServiceName} reset= 604800 actions= restart/900000/restart/900000");
             }
             catch (Exception ex)
             {
