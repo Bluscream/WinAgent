@@ -130,7 +130,7 @@ public class FeatureGenerator : IIncrementalGenerator
             // To support paths like capture/screenshot in MCP, the ModelContextProtocol library uses the method name as the tool name by default.
             // Wait, ModelContextProtocol.Server usually looks at method name or `[McpServerTool("capture/screenshot")]`.
             // Let's assume `[McpServerTool("capture/screenshot")]` is valid or we just generate standard names. We will pass Name.
-            sb.AppendLine($"        [McpServerTool(Name = \"{f.Path}\"), Description(\"{f.Description}\")]");
+            sb.AppendLine($"        [McpServerTool(Name = \"{f.Path.Replace("/", "_")}\"), Description(\"{f.Description}\")]");
             sb.Append($"        public static async Task<string> {methodName}(IServiceProvider serviceProvider");
             
             foreach (var arg in f.Arguments)

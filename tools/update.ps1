@@ -244,26 +244,12 @@ if ($Stop -or $Deploy) {
 }
 
 if ($Build) {
-    Write-Host "Building C# projects as Debug (Warnings as Errors)..." -ForegroundColor Cyan
+    Write-Host "Building WinAgent solution as Debug (Warnings as Errors)..." -ForegroundColor Cyan
     
-    $ServiceCsproj = Join-Path $RootDir "WinAgent.Service\WinAgent.Service.csproj"
-    $TrayCsproj = Join-Path $RootDir "WinAgent.Tray\WinAgent.Tray.csproj"
-    $CliCsproj = Join-Path $RootDir "WinAgent.CLI\WinAgent.CLI.csproj"
-
     Unlock-CompileFiles
     Reset-RepositoryPermissions
-    dotnet build -c Debug $ServiceCsproj -r win-x64 /p:TreatWarningsAsErrors=true /p:UseSharedCompilation=false /p:NodeReuse=false
-    if ($LASTEXITCODE -ne 0) { Write-Error "Service debug build failed."; Exit-Script $LASTEXITCODE }
-
-    Unlock-CompileFiles
-    Reset-RepositoryPermissions
-    dotnet build -c Debug $TrayCsproj -r win-x64 /p:TreatWarningsAsErrors=true /p:UseSharedCompilation=false /p:NodeReuse=false
-    if ($LASTEXITCODE -ne 0) { Write-Error "Tray debug build failed."; Exit-Script $LASTEXITCODE }
-
-    Unlock-CompileFiles
-    Reset-RepositoryPermissions
-    dotnet build -c Debug $CliCsproj -r win-x64 /p:TreatWarningsAsErrors=true /p:UseSharedCompilation=false /p:NodeReuse=false
-    if ($LASTEXITCODE -ne 0) { Write-Error "CLI debug build failed."; Exit-Script $LASTEXITCODE }
+    dotnet build WinAgent.slnx -c Debug /p:TreatWarningsAsErrors=true /p:UseSharedCompilation=false /p:NodeReuse=false
+    if ($LASTEXITCODE -ne 0) { Write-Error "Solution debug build failed."; Exit-Script $LASTEXITCODE }
 }
 
 $MsiPath = Join-Path "$PublishDir\installer" "WinAgent-Installer.msi"
