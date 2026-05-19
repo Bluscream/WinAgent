@@ -31,6 +31,11 @@ $RootDir = Split-Path -Parent $PSScriptRoot
 Set-Location $RootDir
 $ConfigPath = Join-Path $RootDir "appsettings.json"
 
+# Prevent MSBuild process reuse and shared compiler (VBCSCompiler) caching globally to avoid compilation locks
+$env:MSBUILDDISABLENODEREUSE = "1"
+$env:UseSharedCompilation = "false"
+
+
 function Reset-RepositoryPermissions {
     Write-Host "Securing workspace permissions to prevent SYSTEM ownership lockouts..." -ForegroundColor Gray
     try {
@@ -77,6 +82,10 @@ function Unlock-CompileFiles {
             if ($path -and (Test-Path $path)) {
                 # Recursively remove any cache files to prevent MSB3101/CS2012 errors
                 Get-ChildItem -Path $path -Filter "*.cache" -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+                
+                # Recursively remove bin and obj folders in references to guarantee no stale build locks
+                Get-ChildItem -Path $path -Directory -Filter "bin" -Recurse -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+                Get-ChildItem -Path $path -Directory -Filter "obj" -Recurse -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
             }
         }
     } catch {
