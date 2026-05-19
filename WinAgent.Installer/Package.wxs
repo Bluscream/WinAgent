@@ -1,5 +1,6 @@
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
-  <Package Name="WinAgent" Manufacturer="Bluscream" Version="2.13.0" UpgradeCode="2455A1F6-65DF-453D-940E-07498EA34293" Scope="perMachine">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package Name="WinAgent" Manufacturer="Bluscream" Version="2.14.0" UpgradeCode="2455A1F6-65DF-453D-940E-07498EA34293" Scope="perMachine">
     <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." AllowSameVersionUpgrades="yes" />
     
     <MediaTemplate EmbedCab="yes" />
@@ -7,13 +8,34 @@
     <Icon Id="AppIcon" SourceFile="..\assets\icon.ico" />
     <Property Id="ARPPRODUCTICON" Value="AppIcon" />
 
+    <!-- StartTray service argument setup -->
+    <Property Id="STARTTRAY" Value="1" />
+    <Property Id="STARTTRAY_ARG" Value="--start-tray" />
+
+    <!-- Define the CustomActions for setting STARTTRAY_ARG dynamically -->
+    <CustomAction Id="SetSTARTTRAY_ARG_On" Property="STARTTRAY_ARG" Value="--start-tray" />
+    <CustomAction Id="SetSTARTTRAY_ARG_Off" Property="STARTTRAY_ARG" Value="" />
+
+    <!-- Schedule the CustomActions in both UI and Execute sequences -->
+    <InstallExecuteSequence>
+      <Custom Action="SetSTARTTRAY_ARG_On" After="CostFinalize" Condition="&amp;TrayFeature = 3" />
+      <Custom Action="SetSTARTTRAY_ARG_Off" After="CostFinalize" Condition="NOT (&amp;TrayFeature = 3)" />
+    </InstallExecuteSequence>
+    <InstallUISequence>
+      <Custom Action="SetSTARTTRAY_ARG_On" After="CostFinalize" Condition="&amp;TrayFeature = 3" />
+      <Custom Action="SetSTARTTRAY_ARG_Off" After="CostFinalize" Condition="NOT (&amp;TrayFeature = 3)" />
+    </InstallUISequence>
+
+    <!-- Enable standard WixUI with Feature selection tree -->
+    <ui:WixUI Id="WixUI_FeatureTree" />
+
     <!-- Standard directory structure -->
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="WinAgent" />
     </StandardDirectory>
 
-    <ComponentGroup Id="AppComponents" Directory="INSTALLFOLDER">
-      <!-- 1. WinAgent Service Component (natively registered and controlled) -->
+    <!-- 1. WinAgent Service Component Group -->
+    <ComponentGroup Id="ServiceCoreGroup" Directory="INSTALLFOLDER">
       <Component Id="ServiceComponent" Guid="418F7B5E-E420-4C9D-B1DF-31620BF0FEF0">
         <File Id="ServiceExe" Source="$(var.ServicePublishDir)\WinAgent.Service.exe" KeyPath="yes" />
         
@@ -25,7 +47,8 @@
           Description="Windows Agent for providing MQTT, MCP and API control" 
           Start="auto" 
           ErrorControl="normal" 
-          Account="LocalSystem">
+          Account="LocalSystem"
+          Arguments="--service [STARTTRAY_ARG]">
           <ServiceDependency Id="Tcpip" />
         </ServiceInstall>
         
@@ -39,25 +62,32 @@
           Wait="yes" />
       </Component>
 
-      <!-- 2. appsettings.json Component (NeverOverwrite=yes keeps user configurations safe during updates) -->
+      <!-- appsettings.json Component (NeverOverwrite=yes keeps user configurations safe during updates) -->
       <Component Id="ConfigComponent" Guid="D27C218B-7756-427D-B27D-FA7D878A9C12" NeverOverwrite="yes">
         <File Id="AppSettingsJson" Source="$(var.ServicePublishDir)\appsettings.json" KeyPath="yes" />
       </Component>
+    </ComponentGroup>
 
-      <!-- 3. WinAgent Tray Companion Component (adds startup Registry Run Key) -->
+    <!-- 2. WinAgent Tray Companion Component Group -->
+    <ComponentGroup Id="TrayGroup" Directory="INSTALLFOLDER">
       <Component Id="TrayComponent" Guid="A76FD242-76A3-41A8-B6B1-39F241775E01">
         <File Id="TrayExe" Source="$(var.TrayPublishDir)\WinAgent.Tray.exe" KeyPath="yes" />
         <File Id="TrayDll" Source="$(var.TrayPublishDir)\WinAgent.Tray.dll" />
         <RegistryValue Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\Run" Name="WinAgent.Tray" Type="string" Value="&quot;[INSTALLFOLDER]WinAgent.Tray.exe&quot;" />
       </Component>
+    </ComponentGroup>
 
-      <!-- 4. WinAgent CLI Component (adds INSTALLFOLDER to system environment PATH) -->
+    <!-- 3. WinAgent CLI Component Group -->
+    <ComponentGroup Id="CliGroup" Directory="INSTALLFOLDER">
       <Component Id="CliComponent" Guid="98F1D2C6-E715-4D02-A62E-0C49F3010FA2">
         <File Id="CliExe" Source="$(var.CliPublishDir)\winagent.exe" KeyPath="yes" />
         <File Id="CliDll" Source="$(var.CliPublishDir)\winagent.dll" />
         <Environment Id="AddPath" Action="set" Name="PATH" Value="[INSTALLFOLDER]" Part="last" System="yes" />
       </Component>
+    </ComponentGroup>
 
+    <!-- 4. Shared Dependencies (libraries, MCP, Swashbuckle, etc.) -->
+    <ComponentGroup Id="ServiceDependenciesGroup" Directory="INSTALLFOLDER">
       <Files Include="$(var.ServicePublishDir)\**">
         <Exclude Files="$(var.ServicePublishDir)\WinAgent.Service.exe" />
         <Exclude Files="$(var.ServicePublishDir)\appsettings.json" />
@@ -67,23 +97,20 @@
         <Exclude Files="appsettings.json" />
       </Files>
     </ComponentGroup>
-    
-    <!-- Feature definition -->
-    <Feature Id="MainFeature" Title="WinAgent Application Suite" Level="1">
-      <ComponentGroupRef Id="AppComponents" />
+
+    <!-- Feature definitions -->
+    <Feature Id="ServiceFeature" Title="WinAgent Service (Core)" Description="Installs the core Windows Service and all system dependencies. (Required)" Level="1" AllowAbsent="no">
+      <ComponentGroupRef Id="ServiceCoreGroup" />
+      <ComponentGroupRef Id="ServiceDependenciesGroup" />
+    </Feature>
+
+    <Feature Id="TrayFeature" Title="Tray Companion" Description="Installs the tray icon helper for notifications, session unlocking, and user interface." Level="1">
+      <ComponentGroupRef Id="TrayGroup" />
+    </Feature>
+
+    <Feature Id="CliFeature" Title="CLI Command Line Interface" Description="Installs the CLI tool ('winagent') and adds it to the system environment PATH." Level="1">
+      <ComponentGroupRef Id="CliGroup" />
     </Feature>
   </Package>
 </Wix>
-
-
-
-
-
-
-
-
-
-
-
-
 

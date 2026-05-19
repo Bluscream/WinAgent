@@ -14,7 +14,17 @@
     <ProjectReference Include="..\WinAgent.CLI\WinAgent.CLI.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="WixToolset.UI.wixext" Version="5.0.2" />
+  </ItemGroup>
+
   <PropertyGroup>
     <DefineConstants>ServicePublishDir=..\WinAgent.Service\bin\Release\net9.0-windows10.0.19041.0\win-x64\publish;TrayPublishDir=..\WinAgent.Tray\bin\Release\net9.0-windows10.0.19041.0\win-x64\publish;CliPublishDir=..\WinAgent.CLI\bin\Release\net9.0-windows10.0.19041.0\win-x64\publish</DefineConstants>
   </PropertyGroup>
+
+  <!-- Automatically restore and publish referenced C# projects before WiX compiles the installer -->
+  <Target Name="PublishReferencedProjects" BeforeTargets="BeforeBuild">
+    <Message Importance="high" Text="[WinAgent.Installer] Automatically restoring and publishing referenced C# projects in Release..." />
+    <MSBuild Projects="@(ProjectReference)" Targets="Restore;Publish" Properties="Configuration=$(Configuration);RuntimeIdentifier=win-x64;SelfContained=true;PublishSingleFile=false;UseSharedCompilation=false;NodeReuse=false" />
+  </Target>
 </Project>

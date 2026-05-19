@@ -268,13 +268,7 @@ if ($Publish) {
 if ($Deploy -or $Publish) {
     $InstallerProj = Join-Path $RootDir "WinAgent.Installer\WinAgent.Installer.wixproj"
 
-    Write-Host "Publishing all C# projects in the solution as Release (Single Pass)..." -ForegroundColor Cyan
-    Unlock-CompileFiles
-    Reset-RepositoryPermissions
-    dotnet publish "$RootDir\WinAgent.slnx" -c Release -r win-x64 --self-contained -p:PublishSingleFile=false -p:ErrorOnDuplicatePublishOutputFiles=false -p:UseSharedCompilation=false -p:NodeReuse=false
-    if ($LASTEXITCODE -ne 0) { Write-Error "Solution publish failed."; Exit-Script $LASTEXITCODE }
-
-    Write-Host "Building WiX MSI Installer as Release..." -ForegroundColor Cyan
+    Write-Host "Building WiX MSI Installer as Release (automatically publishing dependencies)..." -ForegroundColor Cyan
     Unlock-CompileFiles
     Reset-RepositoryPermissions
     dotnet build $InstallerProj -c Release
@@ -318,7 +312,13 @@ if ($Deploy) {
     try {
         # Run MSI in quiet / passive mode. Quiet with status feedback (/passive) is ideal for local update scripts
         Write-Host "Launching MSI installation..." -ForegroundColor Gray
-        Start-Process msiexec.exe -ArgumentList "/i `"$MsiPath`" /passive /norestart" -Wait -NoNewWindow
+        $MsiArgs = "/i `"$MsiPath`" /passive /norestart"
+        if ($StartTray) {
+            $MsiArgs += " STARTTRAY=`"1`""
+        } else {
+            $MsiArgs += " STARTTRAY=`"0`""
+        }
+        Start-Process msiexec.exe -ArgumentList $MsiArgs -Wait -NoNewWindow
         Write-Host "WinAgent locally updated/installed successfully!" -ForegroundColor Green
     } catch {
         Write-Error "CRITICAL: MSI Installation failed.`n$($_.Exception.Message)"
