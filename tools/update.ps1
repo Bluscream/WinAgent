@@ -53,21 +53,52 @@ $ServiceName = "WinAgent"
 
 function Bump-Version {
     $ServiceCsproj = Join-Path $RootDir "WinAgent.Service\WinAgent.Service.csproj"
+    $TrayCsproj = Join-Path $RootDir "WinAgent.Tray\WinAgent.Tray.csproj"
+    $CliCsproj = Join-Path $RootDir "WinAgent.CLI\WinAgent.CLI.csproj"
+    $WxsPath = Join-Path $RootDir "WinAgent.Installer\Package.wxs"
+
     $content = Get-Content $ServiceCsproj -Raw
     if ($content -match '<Version>(?<version>.*)</Version>') {
         $version = [version]$Matches['version']
-        $newVersion = "{0}.{1}" -f $version.Major, ($version.Minor + 1)
+        $newVersion = "{0}.{1}.{2}" -f $version.Major, ($version.Minor + 1), 0
+        
+        # 1. Update Service
         $content = $content -replace "<Version>.*</Version>", "<Version>$newVersion</Version>"
         $content | Set-Content $ServiceCsproj
-        Write-Host "Bumped version in WinAgent.Service to $newVersion" -ForegroundColor Magenta
+        
+        # 2. Update Tray
+        if (Test-Path $TrayCsproj) {
+            $c = Get-Content $TrayCsproj -Raw
+            $c = $c -replace "<Version>.*</Version>", "<Version>$newVersion</Version>"
+            $c | Set-Content $TrayCsproj
+        }
+
+        # 3. Update CLI
+        if (Test-Path $CliCsproj) {
+            $c = Get-Content $CliCsproj -Raw
+            $c = $c -replace "<Version>.*</Version>", "<Version>$newVersion</Version>"
+            $c | Set-Content $CliCsproj
+        }
+
+        # 4. Update Package.wxs
+        if (Test-Path $WxsPath) {
+            $c = Get-Content $WxsPath -Raw
+            $c = $c -replace 'Version="[^"]+"', "Version=""$newVersion"""
+            $c | Set-Content $WxsPath
+        }
+
+        Write-Host "Synchronized and bumped version to $newVersion in all projects and installer configuration!" -ForegroundColor Magenta
         return $newVersion
     }
-    return "1.0.0"
+    return "2.0.0"
 }
 
-if ($Stop) {
+if ($Stop -or $Deploy) {
     Write-Host "Stopping WinAgent Service..." -ForegroundColor Cyan
     $ServiceExePath = Join-Path $DeployDir "WinAgent.Service.exe"
+    if (-not (Test-Path $ServiceExePath)) {
+        $ServiceExePath = "C:\Program Files\WinAgent\WinAgent.Service.exe"
+    }
     if (Test-Path $ServiceExePath) {
         sudo $ServiceExePath --stop
     } else {
@@ -92,7 +123,10 @@ if ($Stop) {
     $FilesToCheck = @(
         "$DeployDir\WinAgent.Service.exe",
         "$DeployDir\WinAgent.Tray.exe",
-        "$DeployDir\winagent.exe"
+        "$DeployDir\winagent.exe",
+        "C:\Program Files\WinAgent\WinAgent.Service.exe",
+        "C:\Program Files\WinAgent\WinAgent.Tray.exe",
+        "C:\Program Files\WinAgent\winagent.exe"
     )
     while ($retry -gt 0) {
         $locked = $false
@@ -124,33 +158,51 @@ if ($Build) {
 
 if ($Deploy) {
     dotnet build-server shutdown | Out-Null
-    Write-Host "Publishing all projects to shared directory..." -ForegroundColor Cyan
     
     $ServiceCsproj = Join-Path $RootDir "WinAgent.Service\WinAgent.Service.csproj"
     $TrayCsproj = Join-Path $RootDir "WinAgent.Tray\WinAgent.Tray.csproj"
     $CliCsproj = Join-Path $RootDir "WinAgent.CLI\WinAgent.CLI.csproj"
+    $InstallerProj = Join-Path $RootDir "WinAgent.Installer\WinAgent.Installer.wixproj"
 
-    # Publish to a single shared directory using uncompressed, sharing assemblies
-    dotnet publish $ServiceCsproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:UseSharedCompilation=false -o "$PublishDir\shared"
-    dotnet publish $TrayCsproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:UseSharedCompilation=false -p:BuildProjectReferences=false -o "$PublishDir\shared"
-    dotnet publish $CliCsproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:UseSharedCompilation=false -p:BuildProjectReferences=false -o "$PublishDir\shared"
+    Write-Host "Publishing C# projects to harvesting directory..." -ForegroundColor Cyan
+    dotnet publish $ServiceCsproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:UseSharedCompilation=false -p:ErrorOnDuplicatePublishOutputFiles=false -o "$RootDir\WinAgent.Installer\obj\x64\Release\publish\WinAgent.Service"
+    dotnet publish $TrayCsproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:UseSharedCompilation=false -p:BuildProjectReferences=false -p:ErrorOnDuplicatePublishOutputFiles=false -o "$RootDir\WinAgent.Installer\obj\x64\Release\publish\WinAgent.Tray"
+    dotnet publish $CliCsproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:UseSharedCompilation=false -p:BuildProjectReferences=false -p:ErrorOnDuplicatePublishOutputFiles=false -o "$RootDir\WinAgent.Installer\obj\x64\Release\publish\WinAgent.CLI"
 
-    Write-Host "Deploying shared folder to $DeployDir..." -ForegroundColor Cyan
-    if (-not (Test-Path $DeployDir)) {
-        New-Item -ItemType Directory -Path $DeployDir -Force | Out-Null
-    }
-
-    try {
-        # Copy the shared directory recursively
-        Copy-Item -Path "$PublishDir\shared\*" -Destination $DeployDir -Recurse -Force -ErrorAction Stop
-        Write-Host "Successfully deployed to $DeployDir" -ForegroundColor Green
-    } catch {
-        Write-Error "CRITICAL: Failed to copy files to $DeployDir. File is likely locked.`n$($_.Exception.Message)"
+    Write-Host "Building WiX MSI Installer package..." -ForegroundColor Cyan
+    dotnet build $InstallerProj -c Release -r win-x64 -p:BuildProjectReferences=false -o "$PublishDir\installer"
+    
+    $MsiPath = Join-Path "$PublishDir\installer" "WinAgent-Installer.msi"
+    if (-not (Test-Path $MsiPath)) {
+        Write-Error "CRITICAL: MSI Installer package was not generated."
         exit 1
     }
 
-    Copy-Item $ConfigPath $DeployDir -Force -ErrorAction SilentlyContinue
-    Write-Host "Configuration copied to $DeployDir" -ForegroundColor Green
+    # Run the MSI installer
+    Write-Host "Installing/Updating WinAgent locally via MSI..." -ForegroundColor Cyan
+    try {
+        # Copy user appsettings.json into the installer's source to seed the clean install if it doesn't exist yet,
+        # but the MSI never overwrites it if it's already in Program Files.
+        $TargetConfigDir = "C:\Program Files\WinAgent"
+        if (Test-Path $ConfigPath) {
+            if (-not (Test-Path $TargetConfigDir)) {
+                New-Item -ItemType Directory -Path $TargetConfigDir -Force | Out-Null
+            }
+            $TargetConfig = Join-Path $TargetConfigDir "appsettings.json"
+            if (-not (Test-Path $TargetConfig)) {
+                Copy-Item $ConfigPath $TargetConfig -Force -ErrorAction SilentlyContinue
+                Write-Host "Seeded configuration file to $TargetConfig" -ForegroundColor Green
+            }
+        }
+
+        # Run MSI in quiet / passive mode. Quiet with status feedback (/passive) is ideal for local update scripts
+        Write-Host "Launching MSI installation..." -ForegroundColor Gray
+        Start-Process msiexec.exe -ArgumentList "/i `"$MsiPath`" /passive /norestart" -Wait -NoNewWindow
+        Write-Host "WinAgent locally updated/installed successfully!" -ForegroundColor Green
+    } catch {
+        Write-Error "CRITICAL: MSI Installation failed.`n$($_.Exception.Message)"
+        exit 1
+    }
 }
 
 if ($Publish) {

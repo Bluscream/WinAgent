@@ -1,5 +1,5 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
-  <Package Name="WinAgent" Manufacturer="Bluscream" Version="1.2.0" UpgradeCode="2455A1F6-65DF-453D-940E-07498EA34293" Scope="perMachine">
+  <Package Name="WinAgent" Manufacturer="Bluscream" Version="2.0.0" UpgradeCode="2455A1F6-65DF-453D-940E-07498EA34293" Scope="perMachine">
     <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." AllowSameVersionUpgrades="yes" />
     
     <MediaTemplate EmbedCab="yes" />
@@ -57,10 +57,11 @@
       </Component>
 
       <!-- 5. Harvested Files (all dependencies, DLLs, and support files from WinAgent.Service publish directory) -->
-      <Component Id="HarvestedFilesComponent" Guid="EFE7C021-392D-4E90-A8BE-C89C1990A405">
-        <!-- Recursively includes all assemblies and assets from WinAgent.Service's publish folder, excluding Service EXE and appsettings.json -->
-        <Files Include="!(bindpath.WinAgent.Service)\**" Exclude="!(bindpath.WinAgent.Service)\WinAgent.Service.exe;!(bindpath.WinAgent.Service)\appsettings.json" />
-      </Component>
+      <!-- Recursively includes all assemblies and assets from WinAgent.Service's publish folder, excluding Service EXE and appsettings.json -->
+      <Files Include="!(bindpath.WinAgent.Service)\**">
+        <Exclude Files="**\WinAgent.Service.exe" />
+        <Exclude Files="**\appsettings.json" />
+      </Files>
     </ComponentGroup>
     
     <!-- Feature definition -->

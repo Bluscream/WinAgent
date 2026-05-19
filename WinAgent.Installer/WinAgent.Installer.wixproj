@@ -1,8 +1,9 @@
-<Project Sdk="WixToolset.Sdk/4.0.0">
+<Project Sdk="WixToolset.Sdk/5.0.2">
   <PropertyGroup>
     <!-- We generate an x64 package -->
     <OutputName>WinAgent-Installer</OutputName>
     <OutputType>Package</OutputType>
+    <Platform>x64</Platform>
     <Platforms>x64</Platforms>
   </PropertyGroup>
 
