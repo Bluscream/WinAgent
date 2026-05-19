@@ -316,21 +316,21 @@ if ($Publish) {
     git commit -m "v$newVersion"
     git push
 
-    # 1. Publish all projects to shared directory
-    Write-Host "Publishing app files..." -ForegroundColor Gray
+    # 1. Publish all projects to harvesting folders
+    Write-Host "Publishing app files to harvesting directory..." -ForegroundColor Gray
     $ServiceCsproj = Join-Path $RootDir "WinAgent.Service\WinAgent.Service.csproj"
     $TrayCsproj = Join-Path $RootDir "WinAgent.Tray\WinAgent.Tray.csproj"
     $CliCsproj = Join-Path $RootDir "WinAgent.CLI\WinAgent.CLI.csproj"
 
     Unlock-CompileFiles
     Reset-RepositoryPermissions
-    dotnet publish $ServiceCsproj -c Release -r win-x64 --no-build --self-contained true -p:PublishSingleFile=false -p:ErrorOnDuplicatePublishOutputFiles=false -p:UseSharedCompilation=false -p:NodeReuse=false -o "$PublishDir\shared"
+    dotnet publish $ServiceCsproj -c Release -r win-x64 --no-build --self-contained true -p:PublishSingleFile=false -p:ErrorOnDuplicatePublishOutputFiles=false -p:UseSharedCompilation=false -p:NodeReuse=false -o "$RootDir\WinAgent.Installer\obj\x64\Release\publish\WinAgent.Service"
     Unlock-CompileFiles
     Reset-RepositoryPermissions
-    dotnet publish $TrayCsproj -c Release -r win-x64 --no-build --self-contained true -p:PublishSingleFile=false -p:ErrorOnDuplicatePublishOutputFiles=false -p:UseSharedCompilation=false -p:NodeReuse=false -o "$PublishDir\shared"
+    dotnet publish $TrayCsproj -c Release -r win-x64 --no-build --self-contained true -p:PublishSingleFile=false -p:ErrorOnDuplicatePublishOutputFiles=false -p:UseSharedCompilation=false -p:NodeReuse=false -o "$RootDir\WinAgent.Installer\obj\x64\Release\publish\WinAgent.Tray"
     Unlock-CompileFiles
     Reset-RepositoryPermissions
-    dotnet publish $CliCsproj -c Release -r win-x64 --no-build --self-contained true -p:PublishSingleFile=false -p:ErrorOnDuplicatePublishOutputFiles=false -p:UseSharedCompilation=false -p:NodeReuse=false -o "$PublishDir\shared"
+    dotnet publish $CliCsproj -c Release -r win-x64 --no-build --self-contained true -p:PublishSingleFile=false -p:ErrorOnDuplicatePublishOutputFiles=false -p:UseSharedCompilation=false -p:NodeReuse=false -o "$RootDir\WinAgent.Installer\obj\x64\Release\publish\WinAgent.CLI"
 
     # 2. Build the WiX MSI Installer package
     Write-Host "Building WiX MSI Installer..." -ForegroundColor Gray
@@ -341,13 +341,24 @@ if ($Publish) {
     
     $MsiPath = Join-Path "$PublishDir\installer" "WinAgent-Installer.msi"
 
-    # 3. Create companion ZIP archive for Scoop
+    # 3. Consolidate published files to shared directory for portable Scoop ZIP
+    Write-Host "Consolidating app files to shared directory for portable distribution..." -ForegroundColor Gray
+    $SharedOutputDir = "$PublishDir\shared"
+    if (Test-Path $SharedOutputDir) { Remove-Item $SharedOutputDir -Recurse -Force -ErrorAction SilentlyContinue }
+    New-Item -ItemType Directory -Path $SharedOutputDir -Force | Out-Null
+    
+    # Copy from harvesting directories to the shared portable folder
+    Copy-Item -Path "$RootDir\WinAgent.Installer\obj\x64\Release\publish\WinAgent.Service\*" -Destination $SharedOutputDir -Recurse -Force -ErrorAction SilentlyContinue
+    Copy-Item -Path "$RootDir\WinAgent.Installer\obj\x64\Release\publish\WinAgent.Tray\*" -Destination $SharedOutputDir -Recurse -Force -ErrorAction SilentlyContinue
+    Copy-Item -Path "$RootDir\WinAgent.Installer\obj\x64\Release\publish\WinAgent.CLI\*" -Destination $SharedOutputDir -Recurse -Force -ErrorAction SilentlyContinue
+
+    # 4. Create companion ZIP archive for Scoop
     Write-Host "Creating companion ZIP archive..." -ForegroundColor Gray
     $ZipPath = Join-Path $PublishDir "WinAgent-portable.zip"
     if (Test-Path $ZipPath) { Remove-Item $ZipPath -Force }
-    Compress-Archive -Path "$PublishDir\shared\*" -DestinationPath $ZipPath -Force
+    Compress-Archive -Path "$SharedOutputDir\*" -DestinationPath $ZipPath -Force
 
-    # 4. Attach to GitHub release
+    # 5. Attach to GitHub release
     Write-Host "Creating GitHub Release..." -ForegroundColor Gray
     gh release create "v$newVersion" $MsiPath $ZipPath --title "Release v$newVersion" --notes "Automated release via update.ps1 with WiX Installer (MSI) and Portable ZIP"
 }
