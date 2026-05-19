@@ -22,10 +22,19 @@ blu_pc_notify:
     {{ payload | to_json }}
 
 blu_pc_screenshot:
-  url: "http://192.168.2.50:23482/api/screenshot"
-  method: GET
+  url: "http://192.168.2.50:23482/api/capture/screenshot"
+  method: POST
   headers:
     Authorization: "Bearer 7f46fda81f4d4b51878cdf01aca45804"
+    content_type: "application/json"
+  payload: >
+    {
+      "desktop": "{{ desktop | default('Default') }}",
+      "quality": {{ quality | default(75) }},
+      "display": "{{ display | default('all') }}",
+      "format": "{{ format | default('png') }}",
+      "base64": {{ base64 | default(false) | lower }}
+    }
 
 blu_pc_toggle_block:
   url: "http://192.168.2.50:23482/api/toggle-block"
@@ -52,20 +61,23 @@ blu_pc_execute:
   payload: '{"action": {{ action_json | to_json }}}'
 
 blu_pc_lock:
-  url: "http://192.168.2.50:23482/api/execute"
+  url: "http://192.168.2.50:23482/api/system/lock"
   method: POST
   headers:
     Authorization: "Bearer 7f46fda81f4d4b51878cdf01aca45804"
-  content_type: "application/json"
-  payload: '{"action": "lock"}'
 
 blu_pc_shutdown:
-  url: "http://192.168.2.50:23482/api/execute"
+  url: "http://192.168.2.50:23482/api/system/shutdown"
   method: POST
   headers:
     Authorization: "Bearer 7f46fda81f4d4b51878cdf01aca45804"
-  content_type: "application/json"
-  payload: '{"action": "shutdown"}'
+    content_type: "application/json"
+  payload: >
+    {
+      "force": {{ force | default(false) | lower }},
+      "timeout": {{ timeout | default(0) }},
+      "message": "{{ message | default('') }}"
+    }
 
 blu_pc_start_process:
   url: "http://192.168.2.50:23482/api/start-process"
@@ -106,12 +118,17 @@ blu_pc_device_restart:
   payload: '{"pattern": "{{ pattern }}"}'
 
 blu_pc_logout:
-  url: "http://192.168.2.50:23482/api/execute"
+  url: "http://192.168.2.50:23482/api/system/logout"
   method: POST
   headers:
     Authorization: "Bearer 7f46fda81f4d4b51878cdf01aca45804"
-  content_type: "application/json"
-  payload: '{"action": "logout"}'
+    content_type: "application/json"
+  payload: >
+    {
+      "allUsers": {{ all_users | default(false) | lower }},
+      "timeout": {{ timeout | default(0) }},
+      "message": "{{ message | default('') }}"
+    }
 
 blu_pc_sleep:
   url: "http://192.168.2.50:23482/api/execute"
@@ -130,12 +147,56 @@ blu_pc_hibernate:
   payload: '{"action": "hibernate"}'
 
 blu_pc_restart:
-  url: "http://192.168.2.50:23482/api/execute"
+  url: "http://192.168.2.50:23482/api/system/reboot"
   method: POST
   headers:
     Authorization: "Bearer 7f46fda81f4d4b51878cdf01aca45804"
-  content_type: "application/json"
-  payload: '{"action": "restart"}'
+    content_type: "application/json"
+  payload: >
+    {
+      "force": {{ force | default(false) | lower }},
+      "timeout": {{ timeout | default(0) }},
+      "message": "{{ message | default('') }}"
+    }
+
+blu_pc_login:
+  url: "http://192.168.2.50:23482/api/system/login"
+  method: POST
+  headers:
+    Authorization: "Bearer 7f46fda81f4d4b51878cdf01aca45804"
+    content_type: "application/json"
+  payload: >
+    {
+      "username": "{{ username | default('') }}",
+      "password": "{{ password | default('') }}",
+      "domain": "{{ domain | default('') }}",
+      "keepCredentials": {{ keep_credentials | default(false) | lower }},
+      "wtsConnect": {{ wts_connect | default(false) | lower }}
+    }
+
+blu_pc_type_logon:
+  url: "http://192.168.2.50:23482/api/system/type_logon"
+  method: POST
+  headers:
+    Authorization: "Bearer 7f46fda81f4d4b51878cdf01aca45804"
+    content_type: "application/json"
+  payload: >
+    {
+      "text": "{{ text | default('') }}",
+      "enter": {{ enter | default(true) | lower }}
+    }
+
+blu_pc_clear_credentials:
+  url: "http://192.168.2.50:23482/api/system/clear_credentials"
+  method: POST
+  headers:
+    Authorization: "Bearer 7f46fda81f4d4b51878cdf01aca45804"
+
+blu_pc_list_screens:
+  url: "http://192.168.2.50:23482/api/capture/list_screens"
+  method: POST
+  headers:
+    Authorization: "Bearer 7f46fda81f4d4b51878cdf01aca45804"
 
 
 game_chat_notify:

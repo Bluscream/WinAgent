@@ -56,6 +56,11 @@ public static class Program
 
         try
         {
+            if (args.Length > 0 && !args[0].StartsWith("-"))
+            {
+                return await ExecuteFeature(args);
+            }
+
             if (args.Contains("--state") || args.Contains("--entity-state"))
             {
                 var state = GetArgValue(args, "--state") ?? GetArgValue(args, "--entity-state");
@@ -432,6 +437,50 @@ public static class Program
         }
 
         Console.Error.WriteLine($"Failed to fire event. Status: {resp.StatusCode}");
+        return 1;
+    }
+
+    private static async Task<int> ExecuteFeature(string[] args)
+    {
+        var path = args[0];
+        var payload = new Dictionary<string, object>();
+
+        for (int i = 1; i < args.Length; i++)
+        {
+            if (args[i].StartsWith("--"))
+            {
+                var key = args[i].Substring(2);
+                if (i + 1 < args.Length && !args[i + 1].StartsWith("--"))
+                {
+                    var val = args[i + 1];
+                    // Very simple parsing: try to cast to int or bool if possible, else string
+                    if (int.TryParse(val, out var iVal)) payload[key] = iVal;
+                    else if (bool.TryParse(val, out var bVal)) payload[key] = bVal;
+                    else payload[key] = val;
+                    i++; // skip next arg
+                }
+                else
+                {
+                    payload[key] = true; // flag without value
+                }
+            }
+        }
+
+        var json = JsonSerializer.Serialize(payload);
+        var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+
+        var resp = await _httpClient.PostAsync($"{_baseUrl}/api/{path}", content);
+        if (resp.IsSuccessStatusCode)
+        {
+            var result = await resp.Content.ReadAsStringAsync();
+            Console.WriteLine(result);
+            return 0;
+        }
+
+        Console.Error.WriteLine($"Failed to execute feature '{path}'. Status: {resp.StatusCode}");
+        var errResult = await resp.Content.ReadAsStringAsync();
+        if (!string.IsNullOrWhiteSpace(errResult)) Console.Error.WriteLine(errResult);
+        
         return 1;
     }
 }

@@ -47,7 +47,7 @@ public class SensorsController : ControllerBase
                 hwType = ht;
 
             var sensors = _hardwareMonitor.GetAllSensors(hardwareIdentifier, sType, hwType);
-            var tree = HardwareTools.FormatSensorsTree(sensors);
+            var tree = WinAgent.Features.HardwareFeatureHelpers.FormatSensorsTree(sensors);
 
             return Ok(tree);
         }
@@ -73,7 +73,7 @@ public class SensorsController : ControllerBase
                 hwType = ht;
 
             var sensors = _hardwareMonitor.GetAllSensors(request.HardwareIdentifier, sType, hwType);
-            var tree = HardwareTools.FormatSensorsTree(sensors);
+            var tree = WinAgent.Features.HardwareFeatureHelpers.FormatSensorsTree(sensors);
 
             return Ok(tree);
         }

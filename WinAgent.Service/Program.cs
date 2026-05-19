@@ -132,6 +132,7 @@ public static class Program
         });
 
         // Add IpcMcp Services
+        builder.Services.AddHttpContextAccessor();
         builder.Services.AddSingleton<ProcessService>();
         builder.Services.AddSingleton<RegistryService>();
         builder.Services.AddSingleton<WindowsService>();
@@ -149,6 +150,65 @@ public static class Program
         builder.Services.AddSingleton<PInvokeService>();
         builder.Services.AddSingleton<HardwareMonitorService>();
         builder.Services.AddSingleton<McpService>();
+
+        // Register Features
+        builder.Services.AddSingleton<WinAgent.Features.ScreenshotFeature>();
+        builder.Services.AddSingleton<WinAgent.Features.ShutdownFeature>();
+        builder.Services.AddSingleton<WinAgent.Features.RebootFeature>();
+        builder.Services.AddSingleton<WinAgent.Features.LockFeature>();
+        builder.Services.AddSingleton<WinAgent.Features.LogoutFeature>();
+        builder.Services.AddSingleton<WinAgent.Features.LoginFeature>();
+        builder.Services.AddSingleton<WinAgent.Features.TypeLogonFeature>();
+        builder.Services.AddSingleton<WinAgent.Features.ClearCredentialsFeature>();
+
+        // IPC Features
+        builder.Services.AddSingleton<WinAgent.Features.NamedPipeFeature>();
+        builder.Services.AddSingleton<WinAgent.Features.MappedFileFeature>();
+        builder.Services.AddSingleton<WinAgent.Features.RegistryFeature>();
+        builder.Services.AddSingleton<WinAgent.Features.ComFeature>();
+        builder.Services.AddSingleton<WinAgent.Features.SearchRegistryFeature>();
+
+        // Process / System List Features
+        builder.Services.AddSingleton<WinAgent.Features.StartProcessFeature>();
+        builder.Services.AddSingleton<WinAgent.Features.ListFeature>();
+
+        // Mcp Features
+        builder.Services.AddSingleton<WinAgent.Features.StopMcpFeature>();
+        builder.Services.AddSingleton<WinAgent.Features.RestartMcpFeature>();
+
+        // System Update Feature
+        builder.Services.AddSingleton<WinAgent.Features.UpdateFeature>();
+
+        // Audio Feature
+        builder.Services.AddSingleton<WinAgent.Features.AudioFeature>();
+
+        // Displays Feature
+        builder.Services.AddSingleton<WinAgent.Features.DisplaysFeature>();
+
+        // Devices Feature
+        builder.Services.AddSingleton<WinAgent.Features.DevicesFeature>();
+
+        // Notify Feature
+        builder.Services.AddSingleton<WinAgent.Features.NotifyFeature>();
+
+        // Capture/Screenshot Features
+        builder.Services.AddSingleton<WinAgent.Features.CaptureStreamFeature>();
+        builder.Services.AddSingleton<WinAgent.Features.ListScreensFeature>();
+
+        // Hardware Features
+        builder.Services.AddSingleton<WinAgent.Features.ListHardwareFeature>();
+        builder.Services.AddSingleton<WinAgent.Features.GetSensorsFeature>();
+        builder.Services.AddSingleton<WinAgent.Features.GetSensorValueFeature>();
+        builder.Services.AddSingleton<WinAgent.Features.GetHardwareDetailFeature>();
+        builder.Services.AddSingleton<WinAgent.Features.GetSystemSummaryFeature>();
+        builder.Services.AddSingleton<WinAgent.Features.GetCpuInfoFeature>();
+        builder.Services.AddSingleton<WinAgent.Features.GetGpuInfoFeature>();
+        builder.Services.AddSingleton<WinAgent.Features.GetMemoryInfoFeature>();
+        builder.Services.AddSingleton<WinAgent.Features.GetStorageInfoFeature>();
+        builder.Services.AddSingleton<WinAgent.Features.GetNetworkInfoFeature>();
+        builder.Services.AddSingleton<WinAgent.Features.GetBatteryInfoFeature>();
+        builder.Services.AddSingleton<WinAgent.Features.GetFanInfoFeature>();
+        builder.Services.AddSingleton<WinAgent.Features.GetPowerInfoFeature>();
 
         // Configure CORS
         builder.Services.AddCors(options =>
@@ -313,6 +373,7 @@ public static class Program
         builder.Services.AddHostedService(p => p.GetRequiredService<TrayStarterService>());
         builder.Services.AddHostedService(p => (MqttManager)p.GetRequiredService<IMqttManager>());
         builder.Services.AddHostedService(p => p.GetRequiredService<ShutdownBlockerService>());
+        builder.Services.AddHostedService<MqttFeatureBindingService>();
 
         builder.Services.Configure<HostOptions>(options =>
         {
@@ -335,7 +396,33 @@ public static class Program
 
         app.MapControllers();
         app.MapMcp("/mcp").RequireAuthorization();
+        app.MapFeatures();
         
+        app.MapGet("/api/docs", (string format = "json") => 
+        {
+            var features = WinAgent.Common.Features.FeatureDocsRegistry.Features;
+            if (format?.ToLower() == "md")
+            {
+                var sb = new System.Text.StringBuilder();
+                sb.AppendLine("# WinAgent API Documentation");
+                foreach (var f in features)
+                {
+                    sb.AppendLine($"## {f["Path"]}");
+                    sb.AppendLine($"**Description**: {f["Description"]}");
+                    sb.AppendLine($"**Request Object**: `{f["RequestType"]}`");
+                    sb.AppendLine("### Arguments");
+                    var args = (System.Collections.Generic.List<System.Collections.Generic.Dictionary<string, object>>)f["Arguments"];
+                    foreach (var arg in args)
+                    {
+                        sb.AppendLine($"- `{arg["Name"]}` ({arg["Type"]})");
+                    }
+                    sb.AppendLine();
+                }
+                return Results.Text(sb.ToString(), "text/markdown");
+            }
+            return Results.Json(features);
+        });
+
         app.MapGet("/", () => Results.Redirect("/docs"));
 
         Log.Information("Starting Web Host...");

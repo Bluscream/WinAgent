@@ -28,16 +28,26 @@ if (-not $isAdmin) {
 }
 
 $RootDir = Split-Path -Parent $PSScriptRoot
+Set-Location $RootDir
 $ConfigPath = Join-Path $RootDir "appsettings.json"
 
 function Reset-RepositoryPermissions {
     Write-Host "Securing workspace permissions to prevent SYSTEM ownership lockouts..." -ForegroundColor Gray
     try {
-        # Take ownership of the repository directory and subdirectories for Administrators
-        takeown /F "$RootDir" /R /A /D Y *>$null
-        # Grant Full Control with inheritance to Administrators and Users/Everyone
-        icacls "$RootDir" /grant Administrators:(OI)(CI)F /T /C /Q *>$null
-        icacls "$RootDir" /grant Everyone:(OI)(CI)F /T /C /Q *>$null
+        # Secure the root folder itself (non-recursive) - extremely fast
+        takeown /F "$RootDir" /A *>$null
+        icacls "$RootDir" /grant "Administrators:(OI)(CI)F" /Q *>$null
+        icacls "$RootDir" /grant "Everyone:(OI)(CI)F" /Q *>$null
+
+        # Secure key target folders recursively (only folders that are modified by service/installer)
+        $TargetFolders = @("$PublishDir")
+        foreach ($folder in $TargetFolders) {
+            if ($folder -and (Test-Path $folder)) {
+                takeown /F "$folder" /R /A /D Y *>$null
+                icacls "$folder" /grant "Administrators:(OI)(CI)F" /T /C /Q *>$null
+                icacls "$folder" /grant "Everyone:(OI)(CI)F" /T /C /Q *>$null
+            }
+        }
     } catch {
         Write-Warning "Could not fully reset permissions: $_"
     }

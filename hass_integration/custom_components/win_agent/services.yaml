@@ -9,37 +9,237 @@ notify:
       description: "The title of the notification."
       required: false
       default: "Home Assistant"
-    type:
-      description: "The type of notification (toast, messagebox, banner)."
+    toast:
+      description: "Whether to display as a native Windows Toast notification."
       required: false
-      default: "toast"
-    msgbox_type:
-      description: "The button style for messagebox (MB_OK, MB_YESNO, etc)."
+      default: true
+    messagebox:
+      description: "Whether to display as a popup Message Box."
+      required: false
+      default: false
+    ovrtoolkit:
+      description: "Whether to send the notification to OVRToolkit (VR Overlay)."
+      required: false
+      default: false
+    xsoverlay:
+      description: "Whether to send the notification to XSOverlay (VR Overlay)."
+      required: false
+      default: false
+    type:
+      description: "Messagebox button style (e.g. MB_OK, MB_YESNO, MB_OKCANCEL)."
       required: false
       default: "MB_OK"
-    msgbox_icon:
-      description: "The icon for messagebox (MB_ICONINFORMATION, MB_ICONERROR, etc)."
+    icon:
+      description: "Messagebox icon style (e.g. MB_ICONINFORMATION, MB_ICONWARNING, MB_ICONERROR)."
       required: false
       default: "MB_ICONINFORMATION"
-    timeout:
-      description: "Timeout in milliseconds (0 for no timeout)."
+    timeout_ms:
+      description: "Timeout in milliseconds before auto-closing (if supported)."
       required: false
-      default: 0
+      default: 5000
 
 start_process:
-  description: "Start a process on the Windows PC."
+  description: "Start a process or application on the Windows PC."
   fields:
     executable:
-      description: "The path to the executable or command name."
+      description: "The path to the executable, command, or URI to open."
       required: true
       example: "notepad.exe"
     arguments:
       description: "Command line arguments."
       required: false
-    as_user:
-      description: "Run as a specific user or session ID."
-      required: false
-    elevated:
-      description: "Run with administrator privileges (UAC prompt will appear on PC)."
+      example: "C:\\path\\to\\file.txt"
+    wait_for_exit:
+      description: "Whether to block and wait for the process to exit."
       required: false
       default: false
+    timeout:
+      description: "Wait timeout in milliseconds."
+      required: false
+      default: 30000
+    shell_execute:
+      description: "Execute as shell command (redirects output and returns it)."
+      required: false
+      default: false
+    as_user:
+      description: "Start the process as a specific user or session ID."
+      required: false
+    elevated:
+      description: "Run with administrator privileges (UAC prompt will appear)."
+      required: false
+      default: false
+    window_style:
+      description: "Process window style: Normal, Hidden, Minimized, Maximized."
+      required: false
+      default: "Normal"
+
+lock:
+  description: "Lock the current active Windows user session."
+
+shutdown:
+  description: "Shut down the Windows PC."
+  fields:
+    force:
+      description: "Force close running applications without warning."
+      required: false
+      default: false
+    timeout:
+      description: "Delay timeout in seconds before shutdown."
+      required: false
+      default: 0
+    message:
+      description: "Shutdown display message."
+      required: false
+
+reboot:
+  description: "Reboot the Windows PC."
+  fields:
+    force:
+      description: "Force close running applications without warning."
+      required: false
+      default: false
+    timeout:
+      description: "Delay timeout in seconds before reboot."
+      required: false
+      default: 0
+    message:
+      description: "Reboot display message."
+      required: false
+
+logout:
+  description: "Log out user sessions."
+  fields:
+    all_users:
+      description: "Log out all connected users."
+      required: false
+      default: false
+    timeout:
+      description: "Delay timeout in seconds."
+      required: false
+      default: 0
+    message:
+      description: "Display message to show prior to logout."
+      required: false
+
+login:
+  description: "Perform local login from the Windows lock screen."
+  fields:
+    username:
+      description: "The Windows user name."
+      required: true
+    password:
+      description: "The Windows password."
+      required: true
+    domain:
+      description: "The Windows domain (if domain login)."
+      required: false
+    keep_credentials:
+      description: "Whether to save logon credentials for future auto-logon."
+      required: false
+      default: false
+    wts_connect:
+      description: "Whether to perform a WTS session connection."
+      required: false
+      default: false
+
+type_logon:
+  description: "Type text into the active logon session (useful for custom lockscreens or automation)."
+  fields:
+    text:
+      description: "The text to type."
+      required: true
+    enter:
+      description: "Whether to press Enter key after typing."
+      required: false
+      default: true
+
+clear_credentials:
+  description: "Clear saved logon auto-logon credentials from the registry."
+
+audio:
+  description: "Control system audio inputs, outputs, and volumes."
+  fields:
+    enable:
+      description: "List of audio device names/IDs to enable."
+      required: false
+    disable:
+      description: "List of audio device names/IDs to disable."
+      required: false
+    set_volumes:
+      description: "Key-value mapping of audio device names/IDs to volume level (0-100)."
+      required: false
+
+displays:
+  description: "Control connected multi-monitor displays."
+  fields:
+    action:
+      description: "The display action: enable, disable, turn_off, turn_on, primary, resolution."
+      required: true
+      example: "turn_off"
+    monitor:
+      description: "Target screen identifier or index."
+      required: false
+    value:
+      description: "Action parameter, e.g. '1920x1080' for resolution."
+      required: false
+
+devices:
+  description: "Enable, disable, or restart PnP hardware devices."
+  fields:
+    enable:
+      description: "List of hardware device names/IDs to enable."
+      required: false
+    disable:
+      description: "List of hardware device names/IDs to disable."
+      required: false
+    categories:
+      description: "Filter categories (e.g. 'Monitor', 'Net', 'Mouse')."
+      required: false
+
+update:
+  description: "Manage Windows Update service and trigger searches."
+  fields:
+    install:
+      description: "Whether to automatically download and install detected updates."
+      required: false
+      default: false
+    reboot_if_needed:
+      description: "Whether to automatically reboot the system if required after updates."
+      required: false
+      default: false
+
+screenshot:
+  description: "Capture a screenshot of the system."
+  fields:
+    desktop:
+      description: "The desktop window station to capture."
+      required: false
+      default: "Default"
+    quality:
+      description: "JPEG compression quality (1-100)."
+      required: false
+      default: 75
+    display:
+      description: "Target display index or 'all' to stitch all screens."
+      required: false
+      default: "all"
+    format:
+      description: "Output format: png or jpeg."
+      required: false
+      default: "png"
+    base64:
+      description: "Return base64-encoded string instead of raw binary bytes."
+      required: false
+      default: false
+
+execute_feature:
+  description: "Execute any generic WinAgent Unified Feature REST API endpoint."
+  fields:
+    path:
+      description: "The relative path of the feature."
+      required: true
+      example: "hardware/system_summary"
+    payload:
+      description: "Key-value JSON payload containing feature request arguments."
+      required: false
+
