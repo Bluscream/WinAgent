@@ -12,6 +12,19 @@ param (
 $RootDir = Split-Path -Parent $PSScriptRoot
 $ConfigPath = Join-Path $RootDir "appsettings.json"
 
+# Helper for clean exits with log transcripts
+function Exit-Script ($code = 0) {
+    Stop-Transcript -ErrorAction SilentlyContinue
+    exit $code
+}
+
+# Set up logging transcript
+$LogDir = Join-Path $RootDir "publish"
+if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory $LogDir -Force | Out-Null }
+$LogPath = Join-Path $LogDir "update_run.log"
+
+Start-Transcript -Path $LogPath -Append -Force -ErrorAction SilentlyContinue
+
 # Load config from environment or JSON if exists
 $Token = $env:WINAGENT_TOKEN
 if (-not $Token) {
@@ -34,7 +47,7 @@ if (Test-Path $ConfigPath) {
 
 if (-not $Token) {
     Write-Error "CRITICAL: WINAGENT_TOKEN not found in config or environment. Deployment aborted for security."
-    exit 1
+    Exit-Script 1
 }
 
 # Resolve deploy directory from DeployPath
@@ -112,11 +125,6 @@ if ($Stop -or $Deploy) {
     Get-Process WinAgent.Service -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
     Get-Process WinAgent.Tray -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
     Get-Process winagent -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-    Get-Process ipc-mcp -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-    taskkill /F /IM WinAgent.Service.exe /T 2>$null
-    taskkill /F /IM WinAgent.Tray.exe /T 2>$null
-    taskkill /F /IM winagent.exe /T 2>$null
-    taskkill /F /IM ipc-mcp.exe /T 2>$null
 
     Write-Host "Waiting for file locks to release on all binaries..." -ForegroundColor Gray
     $retry = 10
@@ -152,7 +160,7 @@ if ($Build) {
     dotnet build -c Release $RootDir /p:TreatWarningsAsErrors=true /p:UseSharedCompilation=false
     if ($LASTEXITCODE -ne 0) {
         Write-Error "Build failed with errors or warnings."
-        exit $LASTEXITCODE
+        Exit-Script $LASTEXITCODE
     }
 }
 
@@ -175,33 +183,19 @@ if ($Deploy) {
     $MsiPath = Join-Path "$PublishDir\installer" "WinAgent-Installer.msi"
     if (-not (Test-Path $MsiPath)) {
         Write-Error "CRITICAL: MSI Installer package was not generated."
-        exit 1
+        Exit-Script 1
     }
 
     # Run the MSI installer
     Write-Host "Installing/Updating WinAgent locally via MSI..." -ForegroundColor Cyan
     try {
-        # Copy user appsettings.json into the installer's source to seed the clean install if it doesn't exist yet,
-        # but the MSI never overwrites it if it's already in Program Files.
-        $TargetConfigDir = "C:\Program Files\WinAgent"
-        if (Test-Path $ConfigPath) {
-            if (-not (Test-Path $TargetConfigDir)) {
-                New-Item -ItemType Directory -Path $TargetConfigDir -Force | Out-Null
-            }
-            $TargetConfig = Join-Path $TargetConfigDir "appsettings.json"
-            if (-not (Test-Path $TargetConfig)) {
-                Copy-Item $ConfigPath $TargetConfig -Force -ErrorAction SilentlyContinue
-                Write-Host "Seeded configuration file to $TargetConfig" -ForegroundColor Green
-            }
-        }
-
         # Run MSI in quiet / passive mode. Quiet with status feedback (/passive) is ideal for local update scripts
         Write-Host "Launching MSI installation..." -ForegroundColor Gray
         Start-Process msiexec.exe -ArgumentList "/i `"$MsiPath`" /passive /norestart" -Wait -NoNewWindow
         Write-Host "WinAgent locally updated/installed successfully!" -ForegroundColor Green
     } catch {
         Write-Error "CRITICAL: MSI Installation failed.`n$($_.Exception.Message)"
-        exit 1
+        Exit-Script 1
     }
 }
 
@@ -282,3 +276,4 @@ if ($Start -and -not $Install) {
 }
 
 Write-Host "Done!" -ForegroundColor Green
+Exit-Script 0

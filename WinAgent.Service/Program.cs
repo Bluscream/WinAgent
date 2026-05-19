@@ -48,6 +48,11 @@ public static class Program
 
         Config.Initialize(builder.Configuration);
 
+        if (Global.IsInstall)
+        {
+            EnsureInstallationEnvironmentVariables();
+        }
+
         // Configure Logging
         Log.Logger = new LoggerConfiguration()
             .ReadFrom.Configuration(builder.Configuration)
@@ -335,5 +340,48 @@ public static class Program
 
         Log.Information("Starting Web Host...");
         app.Run();
+    }
+
+    private static void EnsureInstallationEnvironmentVariables()
+    {
+        try
+        {
+            var existingToken = Environment.GetEnvironmentVariable("WINAGENT_TOKEN", EnvironmentVariableTarget.Machine);
+            if (string.IsNullOrEmpty(existingToken))
+            {
+                existingToken = Environment.GetEnvironmentVariable("WINAGENT_TOKEN", EnvironmentVariableTarget.User);
+            }
+
+            if (string.IsNullOrEmpty(existingToken))
+            {
+                var tokenBytes = new byte[16];
+                using (var rng = System.Security.Cryptography.RandomNumberGenerator.Create())
+                {
+                    rng.GetBytes(tokenBytes);
+                }
+                existingToken = Convert.ToHexString(tokenBytes).ToLowerInvariant();
+                Environment.SetEnvironmentVariable("WINAGENT_TOKEN", existingToken, EnvironmentVariableTarget.Machine);
+            }
+
+            var existingPort = Environment.GetEnvironmentVariable("WINAGENT_PORT", EnvironmentVariableTarget.Machine);
+            if (string.IsNullOrEmpty(existingPort))
+            {
+                existingPort = Environment.GetEnvironmentVariable("WINAGENT_PORT", EnvironmentVariableTarget.User);
+            }
+
+            if (string.IsNullOrEmpty(existingPort))
+            {
+                existingPort = "23482";
+                Environment.SetEnvironmentVariable("WINAGENT_PORT", existingPort, EnvironmentVariableTarget.Machine);
+            }
+
+            // Set in current process so immediate execution has access
+            Environment.SetEnvironmentVariable("WINAGENT_TOKEN", existingToken, EnvironmentVariableTarget.Process);
+            Environment.SetEnvironmentVariable("WINAGENT_PORT", existingPort, EnvironmentVariableTarget.Process);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Setup] Failed to ensure system-wide environment variables during install: {ex.Message}");
+        }
     }
 }

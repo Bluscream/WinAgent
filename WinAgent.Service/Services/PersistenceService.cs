@@ -34,10 +34,58 @@ namespace WinAgent.Services
 
         public void EnsureServiceSafeBoot()
         {
+            EnsureEnvironmentVariables();
             EnsureServiceInstalled();
             RegisterSafeBoot("Minimal");
             RegisterSafeBoot("Network");
         }
+
+        private void EnsureEnvironmentVariables()
+        {
+            try
+            {
+                var existingToken = Environment.GetEnvironmentVariable("WINAGENT_TOKEN", EnvironmentVariableTarget.Machine);
+                if (string.IsNullOrEmpty(existingToken))
+                {
+                    existingToken = Environment.GetEnvironmentVariable("WINAGENT_TOKEN", EnvironmentVariableTarget.User);
+                }
+
+                if (string.IsNullOrEmpty(existingToken))
+                {
+                    var tokenBytes = new byte[16];
+                    using (var rng = System.Security.Cryptography.RandomNumberGenerator.Create())
+                    {
+                        rng.GetBytes(tokenBytes);
+                    }
+                    existingToken = Convert.ToHexString(tokenBytes).ToLowerInvariant();
+                    
+                    _logger.LogInformation("Generating a new secure WINAGENT_TOKEN: {Token}", existingToken);
+                    Environment.SetEnvironmentVariable("WINAGENT_TOKEN", existingToken, EnvironmentVariableTarget.Machine);
+                }
+
+                var existingPort = Environment.GetEnvironmentVariable("WINAGENT_PORT", EnvironmentVariableTarget.Machine);
+                if (string.IsNullOrEmpty(existingPort))
+                {
+                    existingPort = Environment.GetEnvironmentVariable("WINAGENT_PORT", EnvironmentVariableTarget.User);
+                }
+
+                if (string.IsNullOrEmpty(existingPort))
+                {
+                    existingPort = "23482";
+                    _logger.LogInformation("Setting default WINAGENT_PORT to 23482 in Machine environment.");
+                    Environment.SetEnvironmentVariable("WINAGENT_PORT", existingPort, EnvironmentVariableTarget.Machine);
+                }
+
+                // Set in current process so immediate execution has access
+                Environment.SetEnvironmentVariable("WINAGENT_TOKEN", existingToken, EnvironmentVariableTarget.Process);
+                Environment.SetEnvironmentVariable("WINAGENT_PORT", existingPort, EnvironmentVariableTarget.Process);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to ensure system-wide environment variables.");
+            }
+        }
+
 
         public void Uninstall()
         {

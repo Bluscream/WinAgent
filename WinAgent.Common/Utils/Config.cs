@@ -59,8 +59,15 @@ public static class Config
         if (!string.IsNullOrEmpty(argValue)) return argValue;
 
         // 2. Env Vars: KEY_NAME (replace - with _)
-        var envVal = Environment.GetEnvironmentVariable(cleanKey.ToEnvKey()) ?? 
-                     Environment.GetEnvironmentVariable(cleanKey.ToEnvKey("WINAGENT_"));
+        var envKey1 = cleanKey.ToEnvKey();
+        var envKey2 = cleanKey.ToEnvKey("WINAGENT_");
+        
+        var envVal = Environment.GetEnvironmentVariable(envKey1) ??
+                     Environment.GetEnvironmentVariable(envKey1, EnvironmentVariableTarget.User) ??
+                     Environment.GetEnvironmentVariable(envKey1, EnvironmentVariableTarget.Machine) ??
+                     Environment.GetEnvironmentVariable(envKey2) ??
+                     Environment.GetEnvironmentVariable(envKey2, EnvironmentVariableTarget.User) ??
+                     Environment.GetEnvironmentVariable(envKey2, EnvironmentVariableTarget.Machine);
         if (!string.IsNullOrEmpty(envVal)) return envVal;
 
         // 3. Configuration (appsettings.json / WinAgent.json)

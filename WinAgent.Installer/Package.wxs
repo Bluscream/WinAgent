@@ -47,12 +47,14 @@
       <!-- 3. WinAgent Tray Companion Component (adds startup Registry Run Key) -->
       <Component Id="TrayComponent" Guid="A76FD242-76A3-41A8-B6B1-39F241775E01">
         <File Id="TrayExe" Source="!(bindpath.WinAgent.Tray)\WinAgent.Tray.exe" KeyPath="yes" />
+        <File Id="TrayDll" Source="!(bindpath.WinAgent.Tray)\WinAgent.Tray.dll" />
         <RegistryValue Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\Run" Name="WinAgent.Tray" Type="string" Value="&quot;[INSTALLFOLDER]WinAgent.Tray.exe&quot;" />
       </Component>
 
       <!-- 4. WinAgent CLI Component (adds INSTALLFOLDER to system environment PATH) -->
       <Component Id="CliComponent" Guid="98F1D2C6-E715-4D02-A62E-0C49F3010FA2">
         <File Id="CliExe" Source="!(bindpath.WinAgent.CLI)\winagent.exe" KeyPath="yes" />
+        <File Id="CliDll" Source="!(bindpath.WinAgent.CLI)\winagent.dll" />
         <Environment Id="AddPath" Action="set" Name="PATH" Value="[INSTALLFOLDER]" Part="last" System="yes" />
       </Component>
 
