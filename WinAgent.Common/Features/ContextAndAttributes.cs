@@ -8,6 +8,7 @@ public enum ExecutionSource
     Mcp,
     Mqtt,
     Cli,
+    Ipc,
     Unknown
 }
 

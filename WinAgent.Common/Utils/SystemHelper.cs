@@ -432,5 +432,81 @@ namespace WinAgent.Utils
             var cleaned = CleanJsonNode(root);
             return cleaned?.ToJsonString() ?? "{}";
         }
+
+        public static bool? ParseState(object? state, bool currentVal)
+        {
+            if (state == null)
+            {
+                return null;
+            }
+
+            if (state is JsonElement jsonElem)
+            {
+                switch (jsonElem.ValueKind)
+                {
+                    case JsonValueKind.True:
+                        return true;
+                    case JsonValueKind.False:
+                        return false;
+                    case JsonValueKind.Number:
+                        if (jsonElem.TryGetInt32(out int intVal))
+                        {
+                            return intVal != 0;
+                        }
+                        if (jsonElem.TryGetDouble(out double doubleVal))
+                        {
+                            return doubleVal != 0.0;
+                        }
+                        return null;
+                    case JsonValueKind.String:
+                        state = jsonElem.GetString();
+                        break;
+                    case JsonValueKind.Null:
+                    case JsonValueKind.Undefined:
+                        return null;
+                    default:
+                        return null;
+                }
+            }
+
+            if (state is bool b)
+            {
+                return b;
+            }
+
+            if (state is int i)
+            {
+                return i != 0;
+            }
+            
+            if (state is double d)
+            {
+                return d != 0.0;
+            }
+
+            if (state is string s)
+            {
+                s = s.Trim().ToLowerInvariant();
+                if (string.IsNullOrEmpty(s))
+                {
+                    return null;
+                }
+
+                if (s == "true" || s == "on" || s == "1")
+                {
+                    return true;
+                }
+                if (s == "false" || s == "off" || s == "0")
+                {
+                    return false;
+                }
+                if (s == "toggle")
+                {
+                    return !currentVal;
+                }
+            }
+
+            return null;
+        }
     }
 }

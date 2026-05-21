@@ -6,12 +6,18 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.Logging;
+using Microsoft.Toolkit.Uwp.Notifications;
+using Windows.UI.Notifications;
+using WinAgent.Models;
+using NotificationData = WinAgent.Models.NotificationData;
 
 namespace WinAgent.Services;
 
 public class NotifyService
 {
     private readonly ProcessService _processService;
+    private readonly ILogger<NotifyService> _logger;
     private static readonly Uri OVRT_WEBSOCKET_URI = new("ws://127.0.0.1:11450/api");
     private static ClientWebSocket? _ovrtWebsocket;
     private static readonly SemaphoreSlim _ovrtLock = new(1, 1);
@@ -20,9 +26,208 @@ public class NotifyService
     [DllImport("kernel32.dll")]
     private static extern uint WTSGetActiveConsoleSessionId();
 
-    public NotifyService(ProcessService processService)
+    public NotifyService(ProcessService processService, ILogger<NotifyService> logger)
     {
         _processService = processService;
+        _logger = logger;
+    }
+
+    public ToastPayload MapRequestToPayload(NotifyRequest request)
+    {
+        // Handle multiple notification types based on flags or the 'Type' string
+        bool useToast = request.UseToast ?? request.Type.Contains("toast", StringComparison.OrdinalIgnoreCase);
+        bool useMessageBox = request.UseMessageBox ?? request.Type.Contains("messagebox", StringComparison.OrdinalIgnoreCase);
+        bool useBanner = request.UseBanner ?? request.Type.Contains("banner", StringComparison.OrdinalIgnoreCase);
+        bool useXSOverlay = request.UseXSOverlay ?? request.Type.Contains("xsoverlay", StringComparison.OrdinalIgnoreCase);
+        bool useOVRToolkit = request.UseOVRToolkit ?? request.Type.Contains("ovrtoolkit", StringComparison.OrdinalIgnoreCase);
+
+        // Default to Toast if nothing specified
+        if (!useToast && !useMessageBox && !useBanner && !useXSOverlay && !useOVRToolkit) useToast = true;
+
+        var data = request.Data ?? new NotificationData();
+        if (string.IsNullOrEmpty(data.Image) && !string.IsNullOrEmpty(request.Image))
+        {
+            data.Image = request.Image;
+        }
+
+        return new ToastPayload
+        {
+            Title = request.Title,
+            Message = request.Message,
+            Data = data,
+            UseMessageBox = useMessageBox,
+            UseBanner = useBanner,
+            BannerPosition = request.BannerPosition,
+            Heading = request.Heading,
+            Footer = request.Footer,
+            Details = request.Details,
+            Checkbox = request.Checkbox,
+            MessageBoxType = request.MessageBoxType,
+            MessageBoxIcon = request.MessageBoxIcon,
+            Timeout = request.Timeout,
+            Classic = request.Classic,
+            Callback = request.Callback,
+            Flash = request.Flash,
+            Ding = request.Ding,
+            UseXSOverlay = useXSOverlay,
+            UseOVRToolkit = useOVRToolkit
+        };
+    }
+
+    public async Task ShowNotificationAsync(ToastPayload payload)
+    {
+        if (payload == null) return;
+
+        try
+        {
+            if (payload.Data == null) payload.Data = new NotificationData();
+
+            if (payload.Message == "clear_notification")
+            {
+                if (!string.IsNullOrWhiteSpace(payload.Data.Tag) && !string.IsNullOrWhiteSpace(payload.Data.Group))
+                    ToastNotificationManagerCompat.History.Remove(payload.Data.Tag, payload.Data.Group);
+                else if (!string.IsNullOrWhiteSpace(payload.Data.Tag))
+                    ToastNotificationManagerCompat.History.Remove(payload.Data.Tag);
+                else
+                    ToastNotificationManagerCompat.History.Clear();
+                
+                return;
+            }
+
+            if (payload.UseMessageBox || payload.UseBanner || payload.UseXSOverlay || payload.UseOVRToolkit)
+            {
+                _logger.LogInformation("Processing enhanced notification (MB: {MB}, Banner: {Banner}, XS: {XS}, OVR: {OVR})", 
+                    payload.UseMessageBox, payload.UseBanner, payload.UseXSOverlay, payload.UseOVRToolkit);
+                
+                try
+                {
+                    var ipcResponse = await IpcServerService.SendRequestToTrayAsync("tray/notify", JsonSerializer.Serialize(payload), 5000);
+                    if (ipcResponse != null && ipcResponse.Success == true)
+                    {
+                        _logger.LogInformation("Successfully sent enhanced notification to Tray via IPC.");
+                        return;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to send enhanced notification via IPC, falling back to process execution.");
+                }
+                var msgArgs = new Modern_Windows_Message_Box_Generator.CLI.MessageBoxArgs
+                {
+                    Title = payload.Title ?? "Notification",
+                    Message = payload.Message ?? "",
+                    UseDialog = payload.UseMessageBox,
+                    UseBanner = payload.UseBanner,
+                    UseXSOverlay = payload.UseXSOverlay,
+                    UseOVRToolkit = payload.UseOVRToolkit,
+                    Heading = payload.Heading ?? "",
+                    Footer = payload.Footer ?? "",
+                    Details = payload.Details ?? "",
+                    Checkbox = payload.Checkbox ?? "",
+                    Type = payload.MessageBoxType ?? "ok",
+                    Icon = payload.MessageBoxIcon ?? "info",
+                    Timeout = payload.Timeout,
+                    Classic = payload.Classic,
+                    CallbackUrl = payload.Callback ?? "",
+                    Flash = payload.Flash,
+                    Ding = payload.Ding,
+                    BannerPos = payload.BannerPosition ?? "TopLeft",
+                    ImagePath = payload.Data?.Image ?? "",
+                    Duration = payload.Data?.Duration > 0 ? payload.Data.Duration : (payload.Timeout > 0 ? payload.Timeout / 1000 : 3)
+                };
+
+                uint sessionId = _processService.GetActiveConsoleSessionId();
+                if (sessionId != 0xFFFFFFFF && sessionId != 0)
+                {
+                    _logger.LogInformation("Active console session found (Session {SessionId}). Spawning session helper.", sessionId);
+                    
+                    var helperExe = "Modern-Windows-Message-Box-Generator.CLI.exe";
+                    if (!File.Exists(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, helperExe)))
+                    {
+                        helperExe = "msgbox.exe";
+                    }
+                    if (!File.Exists(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, helperExe)))
+                    {
+                        helperExe = "winagent.exe";
+                    }
+
+                    var jsonStr = JsonSerializer.Serialize(msgArgs);
+                    var cmdArgs = $"--json \"{jsonStr.Replace("\"", "\\\"")}\"";
+
+                    _ = Task.Run(async () => {
+                        try {
+                            await _processService.StartProcess(helperExe, cmdArgs, asUser: sessionId.ToString(), windowStyle: "hidden");
+                        } catch (Exception ex) {
+                            _logger.LogError(ex, "Error executing session-escaped enhanced notification");
+                        }
+                    });
+                }
+                else
+                {
+                    _logger.LogInformation("No active console session found or currently in user session. Executing directly.");
+                    
+                    _ = Task.Run(async () => {
+                        try {
+                            await Modern_Windows_Message_Box_Generator.CLI.Program.ExecuteArgsAsync(msgArgs);
+                        } catch (Exception ex) {
+                            _logger.LogError(ex, "Error executing direct enhanced notification");
+                        }
+                    });
+                }
+            }
+
+            var builder = new ToastContentBuilder()
+                .AddText(payload.Title ?? "Home Assistant")
+                .AddText(payload.Message ?? "");
+
+            if (payload.Data?.ClickAction != NotificationData.NoAction && !string.IsNullOrWhiteSpace(payload.Data?.ClickAction))
+                builder.AddArgument("action", payload.Data.ClickAction);
+
+            if (!string.IsNullOrWhiteSpace(payload.Data?.Image) && Uri.TryCreate(payload.Data.Image, UriKind.Absolute, out Uri? imageUrl))
+                builder.AddHeroImage(imageUrl);
+
+            if (!string.IsNullOrWhiteSpace(payload.Data?.IconUrl) && Uri.TryCreate(payload.Data.IconUrl, UriKind.Absolute, out Uri? iconUrl))
+                builder.AddAppLogoOverride(iconUrl, ToastGenericAppLogoCrop.Default);
+
+            if (payload.Data?.Actions != null && payload.Data.Actions.Count > 0)
+            {
+                foreach (var action in payload.Data.Actions)
+                {
+                    if (string.IsNullOrEmpty(action.Action)) continue;
+                    
+                    var button = new ToastButton().SetContent(action.Title).AddArgument("action", action.Action);
+                    if (!string.IsNullOrWhiteSpace(action.Uri)) button.AddArgument("uri", action.Uri);
+                    builder.AddButton(button);
+                }
+            }
+
+            if (payload.Data?.Inputs != null && payload.Data.Inputs.Count > 0)
+            {
+                foreach (var input in payload.Data.Inputs)
+                {
+                    if (string.IsNullOrEmpty(input.Id)) continue;
+                    builder.AddInputTextBox(input.Id, input.Text, input.Title);
+                }
+            }
+
+            if (payload.Data?.Sticky == true) builder.SetToastScenario(ToastScenario.Reminder);
+            else if (payload.Data?.Importance == NotificationData.ImportanceHigh) builder.SetToastScenario(ToastScenario.Alarm);
+
+            var toast = builder.GetToastContent();
+            var notification = new ToastNotification(toast.GetXml());
+
+            if (!string.IsNullOrWhiteSpace(payload.Data?.Tag)) notification.Tag = payload.Data.Tag;
+            if (!string.IsNullOrWhiteSpace(payload.Data?.Group)) notification.Group = payload.Data.Group;
+
+            if (payload.Data?.Duration > 0)
+                notification.ExpirationTime = DateTimeOffset.Now.AddSeconds(payload.Data.Duration);
+
+            ToastNotificationManagerCompat.CreateToastNotifier().Show(notification);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error handling unified notification");
+        }
     }
 
     public async Task<string> NotifyAsync(
@@ -105,19 +310,31 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
         uint sessionId = WTSGetActiveConsoleSessionId();
         if (sessionId == 0xFFFFFFFF) throw new Exception("No active console session found");
 
-        var escapedTitle = title.Replace("\"", "\\\"");
-        var escapedMessage = message.Replace("\"", "\\\"");
-        var args = $"--messagebox --title \"{escapedTitle}\" --message \"{escapedMessage}\" --type \"{type}\" --icon \"{icon}\" --timeout {timeoutMs}";
+        var msgArgs = new Modern_Windows_Message_Box_Generator.CLI.MessageBoxArgs
+        {
+            Title = title,
+            Message = message,
+            UseDialog = true,
+            Type = type,
+            Icon = icon,
+            Timeout = timeoutMs
+        };
+
+        var jsonStr = JsonSerializer.Serialize(msgArgs);
+        var cmdArgs = $"--json \"{jsonStr.Replace("\"", "\\\"")}\"";
         
         try
         {
-            // Prefer MqttAgent.exe as the helper if available, fallback to msgbox.exe
-            var helperExe = "winagent.exe";
+            var helperExe = "Modern-Windows-Message-Box-Generator.CLI.exe";
             if (!File.Exists(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, helperExe)))
             {
                 helperExe = "msgbox.exe";
             }
-            await _processService.StartProcess(helperExe, args, asUser: sessionId.ToString(), windowStyle: "hidden");
+            if (!File.Exists(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, helperExe)))
+            {
+                helperExe = "winagent.exe";
+            }
+            await _processService.StartProcess(helperExe, cmdArgs, asUser: sessionId.ToString(), windowStyle: "hidden");
         }
         catch (Exception ex)
         {

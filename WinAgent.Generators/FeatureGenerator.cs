@@ -178,6 +178,8 @@ public class FeatureGenerator : IIncrementalGenerator
         context.AddSource("McpTools_Generated.g.cs", SourceText.From(sb.ToString(), Encoding.UTF8));
     }
 
+
+
     private static void GenerateApiEndpoints(IEnumerable<FeatureClassInfo> features, SourceProductionContext context)
     {
         var sb = new StringBuilder();

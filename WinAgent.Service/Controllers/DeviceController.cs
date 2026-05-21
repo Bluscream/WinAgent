@@ -19,10 +19,41 @@ public class DeviceController : ControllerBase
         _deviceService = deviceService;
     }
 
-    [HttpGet("device-list")]
-    public IActionResult ListDevices([FromQuery] string[]? categories)
+    [AcceptVerbs("GET", "POST"), Route("device-list")]
+    public async Task<IActionResult> ListDevices([FromQuery] string[]? categories)
     {
-        var result = _deviceService.ListDevices(categories);
+        var finalCategories = new List<string>();
+        if (categories != null && categories.Length > 0)
+        {
+            finalCategories.AddRange(categories);
+        }
+
+        if (Request.HasJsonContentType())
+        {
+            try
+            {
+                var body = await Request.ReadFromJsonAsync<JsonElement>();
+                if (body.TryGetProperty("categories", out var prop))
+                {
+                    if (prop.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var item in prop.EnumerateArray())
+                        {
+                            var val = item.GetString();
+                            if (val != null) finalCategories.Add(val);
+                        }
+                    }
+                    else if (prop.ValueKind == JsonValueKind.String)
+                    {
+                        var val = prop.GetString();
+                        if (val != null) finalCategories.Add(val);
+                    }
+                }
+            }
+            catch { }
+        }
+
+        var result = _deviceService.ListDevices(finalCategories.Count > 0 ? finalCategories.ToArray() : null);
         return Ok(result);
     }
 

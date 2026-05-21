@@ -12,6 +12,10 @@ using System.Windows.Forms;
 using System.Collections.Generic;
 using System.Security.Principal;
 using System.Runtime.InteropServices;
+using System.Text.Json;
+using WinAgent.Common.Features;
+using Modern_Windows_Message_Box_Generator.CLI;
+using MessageBoxProgram = Modern_Windows_Message_Box_Generator.CLI.Program;
 
 namespace WinAgent;
 
@@ -24,6 +28,7 @@ public class TrayApplicationContext : ApplicationContext
     private static readonly string Shell32Path = Path.Combine(Environment.SystemDirectory, "shell32.dll");
     private static readonly string PowerCplPath = Path.Combine(Environment.SystemDirectory, "powercpl.dll");
 
+    private readonly TrayIpcClient _ipcClient;
     private HiddenMessageWindow _messageWindow;
     private System.Windows.Forms.Timer _serviceMonitorTimer = null!;
     private bool _hasPromptedServiceDown = false;
@@ -41,6 +46,9 @@ public class TrayApplicationContext : ApplicationContext
         _baseUrl = $"http://localhost:{portStr}";
         _httpClient = new HttpClient();
         _httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _token);
+
+        _ipcClient = new TrayIpcClient(_token, msg => Debug.WriteLine($"[TrayIPC] {msg}"));
+        _ipcClient.Start();
 
         _messageWindow = new HiddenMessageWindow(this);
         _messageWindow.Show();
@@ -136,22 +144,57 @@ public class TrayApplicationContext : ApplicationContext
         powerMenu.DropDownItems.Add(blockShutdownItem);
         powerMenu.DropDownItems.Add(forceActionItem);
 
-        // Fetch Block/Force status on opening the Power Options submenu
         powerMenu.DropDownOpening += async (s, e) => {
             try {
-                var resp = await _httpClient.GetAsync($"{_baseUrl}/api/system/block-status");
-                if (resp.IsSuccessStatusCode) {
-                    var json = await resp.Content.ReadAsStringAsync();
-                    using var data = System.Text.Json.JsonDocument.Parse(json);
-                    blockShutdownItem.Checked = data.RootElement.GetProperty("enabled").GetBoolean();
+                bool fetchedBlock = false;
+                if (_ipcClient.IsConnected)
+                {
+                    var ipcResp = await _ipcClient.SendRequestAsync("system/block_shutdown", "{}");
+                    if (ipcResp?.Success == true && ipcResp.Payload != null)
+                    {
+                        var featResult = JsonSerializer.Deserialize<FeatureResult>(ipcResp.Payload, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                        if (featResult != null && featResult.JsonData != null)
+                        {
+                            using var doc = JsonDocument.Parse(JsonSerializer.Serialize(featResult.JsonData));
+                            blockShutdownItem.Checked = doc.RootElement.GetProperty("Enabled").GetBoolean();
+                            fetchedBlock = true;
+                        }
+                    }
+                }
+                if (!fetchedBlock)
+                {
+                    var resp = await _httpClient.GetAsync($"{_baseUrl}/api/system/block-shutdown");
+                    if (resp.IsSuccessStatusCode) {
+                        var json = await resp.Content.ReadAsStringAsync();
+                        using var data = System.Text.Json.JsonDocument.Parse(json);
+                        blockShutdownItem.Checked = data.RootElement.GetProperty("enabled").GetBoolean();
+                    }
                 }
             } catch { }
             try {
-                var resp = await _httpClient.GetAsync($"{_baseUrl}/api/system/force-status");
-                if (resp.IsSuccessStatusCode) {
-                    var json = await resp.Content.ReadAsStringAsync();
-                    using var data = System.Text.Json.JsonDocument.Parse(json);
-                    forceActionItem.Checked = data.RootElement.GetProperty("enabled").GetBoolean();
+                bool fetchedForce = false;
+                if (_ipcClient.IsConnected)
+                {
+                    var ipcResp = await _ipcClient.SendRequestAsync("system/force_action", "{}");
+                    if (ipcResp?.Success == true && ipcResp.Payload != null)
+                    {
+                        var featResult = JsonSerializer.Deserialize<FeatureResult>(ipcResp.Payload, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                        if (featResult != null && featResult.JsonData != null)
+                        {
+                            using var doc = JsonDocument.Parse(JsonSerializer.Serialize(featResult.JsonData));
+                            forceActionItem.Checked = doc.RootElement.GetProperty("Enabled").GetBoolean();
+                            fetchedForce = true;
+                        }
+                    }
+                }
+                if (!fetchedForce)
+                {
+                    var resp = await _httpClient.GetAsync($"{_baseUrl}/api/system/force-action");
+                    if (resp.IsSuccessStatusCode) {
+                        var json = await resp.Content.ReadAsStringAsync();
+                        using var data = System.Text.Json.JsonDocument.Parse(json);
+                        forceActionItem.Checked = data.RootElement.GetProperty("enabled").GetBoolean();
+                    }
                 }
             } catch { }
         };
@@ -201,8 +244,32 @@ public class TrayApplicationContext : ApplicationContext
     {
         bool newState = !item.Checked;
         try {
-            await _httpClient.PostAsync($"{_baseUrl}/api/system/toggle-block?enabled={newState}", null);
-            item.Checked = newState;
+            bool success = false;
+            bool attemptedIpc = false;
+            if (_ipcClient.IsConnected)
+            {
+                attemptedIpc = true;
+                var ipcResp = await _ipcClient.SendRequestAsync("system/block_shutdown", JsonSerializer.Serialize(new { State = newState }));
+                if (ipcResp?.Success == true)
+                {
+                    success = true;
+                }
+            }
+
+            if (!success && !attemptedIpc)
+            {
+                var resp = await _httpClient.PostAsync($"{_baseUrl}/api/system/block-shutdown?state={newState}", null);
+                success = resp.IsSuccessStatusCode;
+            }
+
+            if (success)
+            {
+                item.Checked = newState;
+            }
+            else
+            {
+                MessageBox.Show("Failed to toggle block shutdown.");
+            }
         } catch (Exception ex) {
             MessageBox.Show($"Failed to communicate with service: {ex.Message}");
         }
@@ -228,8 +295,32 @@ public class TrayApplicationContext : ApplicationContext
     {
         bool newState = !item.Checked;
         try {
-            await _httpClient.PostAsync($"{_baseUrl}/api/system/toggle-force?enabled={newState}", null);
-            item.Checked = newState;
+            bool success = false;
+            bool attemptedIpc = false;
+            if (_ipcClient.IsConnected)
+            {
+                attemptedIpc = true;
+                var ipcResp = await _ipcClient.SendRequestAsync("system/force_action", JsonSerializer.Serialize(new { State = newState }));
+                if (ipcResp?.Success == true)
+                {
+                    success = true;
+                }
+            }
+
+            if (!success && !attemptedIpc)
+            {
+                var resp = await _httpClient.PostAsync($"{_baseUrl}/api/system/force-action?state={newState}", null);
+                success = resp.IsSuccessStatusCode;
+            }
+
+            if (success)
+            {
+                item.Checked = newState;
+            }
+            else
+            {
+                MessageBox.Show("Failed to toggle force action.");
+            }
         } catch (Exception ex) {
             MessageBox.Show($"Failed to communicate with service: {ex.Message}");
         }
@@ -238,14 +329,36 @@ public class TrayApplicationContext : ApplicationContext
     private async void ExecuteAction(string action)
     {
         try {
-            await _httpClient.PostAsync($"{_baseUrl}/api/system/execute?action={action}", null);
+            bool success = false;
+            bool attemptedIpc = false;
+            if (_ipcClient.IsConnected)
+            {
+                attemptedIpc = true;
+                var ipcResp = await _ipcClient.SendRequestAsync("system/execute_action", JsonSerializer.Serialize(new { Action = action }));
+                if (ipcResp?.Success == true)
+                {
+                    success = true;
+                }
+            }
+
+            if (!success && !attemptedIpc)
+            {
+                var resp = await _httpClient.PostAsync($"{_baseUrl}/api/system/execute?action={action}", null);
+                success = resp.IsSuccessStatusCode;
+            }
+
+            if (!success)
+            {
+                MessageBox.Show($"Failed to execute action '{action}'.");
+            }
         } catch (Exception ex) {
-            MessageBox.Show($"Failed to execute action via IPC: {ex.Message}");
+            MessageBox.Show($"Failed to execute action: {ex.Message}");
         }
     }
 
     private void ExitApplication(object? sender, EventArgs e)
     {
+        try { _ipcClient?.Stop(); } catch { }
         _serviceMonitorTimer?.Stop();
         _notifyIcon.Visible = false;
         _notifyIcon.Dispose();
@@ -285,12 +398,31 @@ public class TrayApplicationContext : ApplicationContext
             // Fetch and cache the block status from the service
             try
             {
-                var resp = await _httpClient.GetAsync($"{_baseUrl}/api/system/block-status");
-                if (resp.IsSuccessStatusCode)
+                bool fetched = false;
+                if (_ipcClient.IsConnected)
                 {
-                    var json = await resp.Content.ReadAsStringAsync();
-                    using var doc = System.Text.Json.JsonDocument.Parse(json);
-                    IsBlockShutdownEnabled = doc.RootElement.GetProperty("enabled").GetBoolean();
+                    var ipcResp = await _ipcClient.SendRequestAsync("system/block_shutdown", "{}");
+                    if (ipcResp?.Success == true && ipcResp.Payload != null)
+                    {
+                        var featResult = JsonSerializer.Deserialize<FeatureResult>(ipcResp.Payload, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                        if (featResult != null && featResult.JsonData != null)
+                        {
+                            using var doc = JsonDocument.Parse(JsonSerializer.Serialize(featResult.JsonData));
+                            IsBlockShutdownEnabled = doc.RootElement.GetProperty("Enabled").GetBoolean();
+                            fetched = true;
+                        }
+                    }
+                }
+
+                if (!fetched)
+                {
+                    var resp = await _httpClient.GetAsync($"{_baseUrl}/api/system/block-shutdown");
+                    if (resp.IsSuccessStatusCode)
+                    {
+                        var json = await resp.Content.ReadAsStringAsync();
+                        using var doc = System.Text.Json.JsonDocument.Parse(json);
+                        IsBlockShutdownEnabled = doc.RootElement.GetProperty("enabled").GetBoolean();
+                    }
                 }
             }
             catch { }
@@ -327,18 +459,36 @@ public class TrayApplicationContext : ApplicationContext
 
         try
         {
-            var resp = await _httpClient.GetAsync($"{_baseUrl}/api/system/power-schemes");
-            if (!resp.IsSuccessStatusCode)
+            List<PowerProfileDto>? profiles = null;
+            if (_ipcClient.IsConnected)
             {
-                loadingItem.Text = "Failed to load power profiles.";
-                return;
+                var ipcResp = await _ipcClient.SendRequestAsync("system/power_schemes", "{}");
+                if (ipcResp?.Success == true && ipcResp.Payload != null)
+                {
+                    var featResult = JsonSerializer.Deserialize<FeatureResult>(ipcResp.Payload, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    if (featResult != null && featResult.JsonData != null)
+                    {
+                        var rawJson = JsonSerializer.Serialize(featResult.JsonData);
+                        profiles = JsonSerializer.Deserialize<List<PowerProfileDto>>(rawJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    }
+                }
             }
 
-            var json = await resp.Content.ReadAsStringAsync();
-            var profiles = System.Text.Json.JsonSerializer.Deserialize<List<PowerProfileDto>>(json, new System.Text.Json.JsonSerializerOptions
+            if (profiles == null)
             {
-                PropertyNameCaseInsensitive = true
-            });
+                var resp = await _httpClient.GetAsync($"{_baseUrl}/api/system/power-schemes");
+                if (!resp.IsSuccessStatusCode)
+                {
+                    loadingItem.Text = "Failed to load power profiles.";
+                    return;
+                }
+
+                var json = await resp.Content.ReadAsStringAsync();
+                profiles = JsonSerializer.Deserialize<List<PowerProfileDto>>(json, new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
+            }
 
             if (profiles == null || profiles.Count == 0)
             {
@@ -362,8 +512,33 @@ public class TrayApplicationContext : ApplicationContext
                     clickedItem.Enabled = false;
                     try
                     {
-                        var setResp = await _httpClient.PostAsync($"{_baseUrl}/api/system/set-power-scheme?scheme={Uri.EscapeDataString(profileName)}", null);
-                        if (setResp.IsSuccessStatusCode)
+                        bool success = false;
+                        bool attemptedIpc = false;
+                        if (_ipcClient.IsConnected)
+                        {
+                            attemptedIpc = true;
+                            var ipcResp = await _ipcClient.SendRequestAsync("system/set_power_scheme", JsonSerializer.Serialize(new { Scheme = profileName }));
+                            if (ipcResp?.Success == true && ipcResp.Payload != null)
+                            {
+                                var featResult = JsonSerializer.Deserialize<FeatureResult>(ipcResp.Payload, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                                if (featResult != null && featResult.JsonData != null)
+                                {
+                                    using var doc = JsonDocument.Parse(JsonSerializer.Serialize(featResult.JsonData));
+                                    if (doc.RootElement.TryGetProperty("Success", out var succProp) && succProp.GetBoolean())
+                                    {
+                                        success = true;
+                                    }
+                                }
+                            }
+                        }
+
+                        if (!success && !attemptedIpc)
+                        {
+                            var setResp = await _httpClient.PostAsync($"{_baseUrl}/api/system/set-power-scheme?scheme={Uri.EscapeDataString(profileName)}", null);
+                            success = setResp.IsSuccessStatusCode;
+                        }
+
+                        if (success)
                         {
                             // Uncheck all other items and check this one
                             foreach (ToolStripItem other in powerMenu.DropDownItems)
@@ -413,18 +588,35 @@ public class TrayApplicationContext : ApplicationContext
 
         try
         {
-            var resp = await _httpClient.GetAsync($"{_baseUrl}/api/device-list");
-            if (!resp.IsSuccessStatusCode)
+            List<DeviceDto>? devices = null;
+            if (_ipcClient.IsConnected)
             {
-                loadingItem.Text = "Failed to load devices.";
-                return;
+                var ipcResp = await _ipcClient.SendRequestAsync("system/devices", "{}");
+                if (ipcResp?.Success == true && ipcResp.Payload != null)
+                {
+                    var featResult = JsonSerializer.Deserialize<FeatureResult>(ipcResp.Payload, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    if (featResult != null && !string.IsNullOrEmpty(featResult.PlainText))
+                    {
+                        devices = JsonSerializer.Deserialize<List<DeviceDto>>(featResult.PlainText, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    }
+                }
             }
 
-            var json = await resp.Content.ReadAsStringAsync();
-            var devices = System.Text.Json.JsonSerializer.Deserialize<List<DeviceDto>>(json, new System.Text.Json.JsonSerializerOptions
+            if (devices == null)
             {
-                PropertyNameCaseInsensitive = true
-            });
+                var resp = await _httpClient.GetAsync($"{_baseUrl}/api/device-list");
+                if (!resp.IsSuccessStatusCode)
+                {
+                    loadingItem.Text = "Failed to load devices.";
+                    return;
+                }
+
+                var json = await resp.Content.ReadAsStringAsync();
+                devices = JsonSerializer.Deserialize<List<DeviceDto>>(json, new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
+            }
 
             if (devices == null || devices.Count == 0)
             {
@@ -463,75 +655,124 @@ public class TrayApplicationContext : ApplicationContext
                     {
                         var clickedItem = (ToolStripMenuItem)s!;
                         bool targetState = !clickedItem.Checked;
-                        string endpoint = targetState ? "device-enable" : "device-disable";
                         
                         clickedItem.Enabled = false; // Disable temporarily during API call
                         try
                         {
-                            var toggleResp = await _httpClient.PostAsync($"{_baseUrl}/api/{endpoint}?pattern={Uri.EscapeDataString(devId)}", null);
-                            if (toggleResp.IsSuccessStatusCode)
+                            DeviceToggleResult? result = null;
+                            bool attemptedIpc = false;
+
+                            if (_ipcClient.IsConnected)
                             {
-                                var contentJson = await toggleResp.Content.ReadAsStringAsync();
-                                var result = System.Text.Json.JsonSerializer.Deserialize<DeviceToggleResult>(contentJson, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                                if (result != null)
+                                attemptedIpc = true;
+                                var reqPayload = targetState 
+                                    ? JsonSerializer.Serialize(new { Enable = new[] { devId } })
+                                    : JsonSerializer.Serialize(new { Disable = new[] { devId } });
+                                var ipcResp = await _ipcClient.SendRequestAsync("system/devices", reqPayload);
+                                if (ipcResp?.Success == true && ipcResp.Payload != null)
                                 {
-                                    if (result.Success)
+                                    var featResult = JsonSerializer.Deserialize<FeatureResult>(ipcResp.Payload, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                                    if (featResult != null && !string.IsNullOrEmpty(featResult.PlainText))
                                     {
-                                        clickedItem.Checked = targetState;
-                                        
-                                        var detail = result.Results.FirstOrDefault();
-                                        string heading = targetState ? "Device Enabled Successfully" : "Device Disabled Successfully";
-                                        string msg = detail != null ? detail.Message : $"Device toggled successfully.";
-                                        string details = detail != null ? $"Device Name: {detail.Name}\nDevice ID: {detail.DeviceID}\nAction: {detail.Action}\nStatus: Succeeded" : "";
-                                        
-                                        var thread = new Thread(() =>
+                                        var devicesList = JsonSerializer.Deserialize<List<DeviceDto>>(featResult.PlainText, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                                        var updatedDev = devicesList?.FirstOrDefault(d => d.DeviceID == devId);
+                                        if (updatedDev != null && updatedDev.Enabled == targetState)
                                         {
-                                            Modern_Windows_Message_Box_Generator.CLI.Program.Main(new[] { 
-                                                "--messagebox", 
-                                                "--title", "MQTT Agent", 
-                                                "--heading", heading, 
-                                                "--message", msg, 
-                                                "--icon", "shieldgreen",
-                                                "--details", details
-                                            }).Wait();
-                                        });
-                                        thread.SetApartmentState(ApartmentState.STA);
-                                        thread.Start();
+                                            result = new DeviceToggleResult
+                                            {
+                                                Success = true,
+                                                Results = new List<DeviceToggleDetail>
+                                                {
+                                                    new DeviceToggleDetail
+                                                    {
+                                                        Name = updatedDev.Name,
+                                                        DeviceID = updatedDev.DeviceID,
+                                                        Action = targetState ? "Enable" : "Disable",
+                                                        Success = true,
+                                                        Message = $"Device '{updatedDev.Name}' ({updatedDev.DeviceID}) {(targetState ? "Enabled" : "Disabled")} successfully via IPC."
+                                                    }
+                                                }
+                                            };
+                                        }
                                     }
-                                    else
-                                    {
-                                        var detail = result.Results.FirstOrDefault();
-                                        string heading = "Device Action Failed";
-                                        string msg = detail != null ? detail.Message : "Failed to toggle device.";
-                                        string error = detail?.Error ?? "Unknown error.";
-                                        string details = detail != null ? $"Device Name: {detail.Name}\nDevice ID: {detail.DeviceID}\nAction: {detail.Action}\nStatus: Failed\nError: {error}" : "";
-                                        
-                                        var thread = new Thread(() =>
-                                        {
-                                            Modern_Windows_Message_Box_Generator.CLI.Program.Main(new[] { 
-                                                "--messagebox", 
-                                                "--title", "MQTT Agent", 
-                                                "--heading", heading, 
-                                                "--message", msg, 
-                                                "--icon", "shieldred",
-                                                "--details", details
-                                            }).Wait();
-                                        });
-                                        thread.SetApartmentState(ApartmentState.STA);
-                                        thread.Start();
-                                    }
+                                }
+                            }
+
+                            if (result == null && !attemptedIpc)
+                            {
+                                string endpoint = targetState ? "device-enable" : "device-disable";
+                                var toggleResp = await _httpClient.PostAsync($"{_baseUrl}/api/{endpoint}?pattern={Uri.EscapeDataString(devId)}", null);
+                                if (toggleResp.IsSuccessStatusCode)
+                                {
+                                    var contentJson = await toggleResp.Content.ReadAsStringAsync();
+                                    result = JsonSerializer.Deserialize<DeviceToggleResult>(contentJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
                                 }
                                 else
                                 {
+                                    var errText = await toggleResp.Content.ReadAsStringAsync();
+                                    string detailsStr = $"HTTP Status: {(int)toggleResp.StatusCode} {toggleResp.ReasonPhrase}\nResponse: {errText}";
                                     var thread = new Thread(() =>
                                     {
-                                        Modern_Windows_Message_Box_Generator.CLI.Program.Main(new[] { 
-                                            "--messagebox", 
-                                            "--title", "MQTT Agent", 
-                                            "--heading", "Device Action Completed", 
-                                            "--message", "Device action completed with an empty or unparseable result.", 
-                                            "--icon", "shieldyellow",
-                                            "--details", $"Raw response:\n{contentJson}"
+                                        MessageBoxProgram.ExecuteArgsAsync(new MessageBoxArgs
+                                        {
+                                            UseDialog = true,
+                                            Title = "MQTT Agent Error",
+                                            Heading = "Device Toggle Failed",
+                                            Message = $"The service returned an HTTP error: {toggleResp.StatusCode}",
+                                            Icon = "shieldred",
+                                            Details = detailsStr
+                                        }).Wait();
+                                    });
+                                    thread.SetApartmentState(ApartmentState.STA);
+                                    thread.Start();
+                                    return;
+                                }
+                            }
+
+                            if (result != null)
+                            {
+                                if (result.Success)
+                                {
+                                    clickedItem.Checked = targetState;
+                                    
+                                    var detail = result.Results.FirstOrDefault();
+                                    string heading = targetState ? "Device Enabled Successfully" : "Device Disabled Successfully";
+                                    string msg = detail != null ? detail.Message : $"Device toggled successfully.";
+                                    string details = detail != null ? $"Device Name: {detail.Name}\nDevice ID: {detail.DeviceID}\nAction: {detail.Action}\nStatus: Succeeded" : "";
+                                    
+                                    var thread = new Thread(() =>
+                                    {
+                                        MessageBoxProgram.ExecuteArgsAsync(new MessageBoxArgs
+                                        {
+                                            UseDialog = true,
+                                            Title = "MQTT Agent",
+                                            Heading = heading,
+                                            Message = msg,
+                                            Icon = "shieldgreen",
+                                            Details = details
+                                        }).Wait();
+                                    });
+                                    thread.SetApartmentState(ApartmentState.STA);
+                                    thread.Start();
+                                }
+                                else
+                                {
+                                    var detail = result.Results.FirstOrDefault();
+                                    string heading = "Device Action Failed";
+                                    string msg = detail != null ? detail.Message : "Failed to toggle device.";
+                                    string error = detail?.Error ?? "Unknown error.";
+                                    string details = dev != null ? $"Device Name: {detail?.Name}\nDevice ID: {detail?.DeviceID}\nAction: {detail?.Action}\nStatus: Failed\nError: {error}" : "";
+                                    
+                                    var thread = new Thread(() =>
+                                    {
+                                        MessageBoxProgram.ExecuteArgsAsync(new MessageBoxArgs
+                                        {
+                                            UseDialog = true,
+                                            Title = "MQTT Agent",
+                                            Heading = heading,
+                                            Message = msg,
+                                            Icon = "shieldred",
+                                            Details = details
                                         }).Wait();
                                     });
                                     thread.SetApartmentState(ApartmentState.STA);
@@ -540,17 +781,15 @@ public class TrayApplicationContext : ApplicationContext
                             }
                             else
                             {
-                                var errText = await toggleResp.Content.ReadAsStringAsync();
-                                string detailsStr = $"HTTP Status: {(int)toggleResp.StatusCode} {toggleResp.ReasonPhrase}\nResponse: {errText}";
                                 var thread = new Thread(() =>
                                 {
-                                    Modern_Windows_Message_Box_Generator.CLI.Program.Main(new[] { 
-                                        "--messagebox", 
-                                        "--title", "MQTT Agent Error", 
-                                        "--heading", "Device Toggle Failed", 
-                                        "--message", $"The service returned an HTTP error: {toggleResp.StatusCode}", 
-                                        "--icon", "shieldred",
-                                        "--details", detailsStr
+                                    MessageBoxProgram.ExecuteArgsAsync(new MessageBoxArgs
+                                    {
+                                        UseDialog = true,
+                                        Title = "MQTT Agent",
+                                        Heading = "Device Action Completed",
+                                        Message = "Device action completed with an empty or unparseable result.",
+                                        Icon = "shieldyellow"
                                     }).Wait();
                                 });
                                 thread.SetApartmentState(ApartmentState.STA);
@@ -561,13 +800,14 @@ public class TrayApplicationContext : ApplicationContext
                         {
                             var thread = new Thread(() =>
                             {
-                                Modern_Windows_Message_Box_Generator.CLI.Program.Main(new[] { 
-                                    "--messagebox", 
-                                    "--title", "MQTT Agent Connection Error", 
-                                    "--heading", "IPC Communication Error", 
-                                    "--message", $"Failed to communicate with the MQTT Agent service.", 
-                                    "--icon", "shieldred",
-                                    "--details", $"Error Details: {ex.Message}\n\nStack Trace:\n{ex.StackTrace}"
+                                MessageBoxProgram.ExecuteArgsAsync(new MessageBoxArgs
+                                {
+                                    UseDialog = true,
+                                    Title = "MQTT Agent Connection Error",
+                                    Heading = "IPC Communication Error",
+                                    Message = $"Failed to communicate with the MQTT Agent service.",
+                                    Icon = "shieldred",
+                                    Details = $"Error Details: {ex.Message}\n\nStack Trace:\n{ex.StackTrace}"
                                 }).Wait();
                             });
                             thread.SetApartmentState(ApartmentState.STA);
@@ -773,18 +1013,36 @@ public class TrayApplicationContext : ApplicationContext
 
         try
         {
-            var resp = await _httpClient.GetAsync($"{_baseUrl}/api/sensors");
-            if (!resp.IsSuccessStatusCode)
+            Dictionary<string, HardwareSensorsDto>? hardwareDict = null;
+            if (_ipcClient.IsConnected)
             {
-                loadingItem.Text = "Failed to load sensors.";
-                return;
+                var ipcResp = await _ipcClient.SendRequestAsync("hardware/sensors", "{}");
+                if (ipcResp?.Success == true && ipcResp.Payload != null)
+                {
+                    var featResult = JsonSerializer.Deserialize<FeatureResult>(ipcResp.Payload, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    if (featResult != null && featResult.JsonData != null)
+                    {
+                        var rawJson = JsonSerializer.Serialize(featResult.JsonData);
+                        hardwareDict = JsonSerializer.Deserialize<Dictionary<string, HardwareSensorsDto>>(rawJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    }
+                }
             }
 
-            var json = await resp.Content.ReadAsStringAsync();
-            var hardwareDict = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, HardwareSensorsDto>>(json, new System.Text.Json.JsonSerializerOptions
+            if (hardwareDict == null)
             {
-                PropertyNameCaseInsensitive = true
-            });
+                var resp = await _httpClient.GetAsync($"{_baseUrl}/api/sensors");
+                if (!resp.IsSuccessStatusCode)
+                {
+                    loadingItem.Text = "Failed to load sensors.";
+                    return;
+                }
+
+                var json = await resp.Content.ReadAsStringAsync();
+                hardwareDict = JsonSerializer.Deserialize<Dictionary<string, HardwareSensorsDto>>(json, new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
+            }
 
             if (hardwareDict == null || hardwareDict.Count == 0)
             {
@@ -854,13 +1112,14 @@ public class TrayApplicationContext : ApplicationContext
 
                             var thread = new Thread(() =>
                             {
-                                Modern_Windows_Message_Box_Generator.CLI.Program.Main(new[] { 
-                                    "--messagebox", 
-                                    "--title", "WinAgent", 
-                                    "--heading", heading, 
-                                    "--message", $"Current value is {sFormatted} (Copied to Clipboard).", 
-                                    "--icon", "shieldgreen",
-                                    "--details", detailsStr
+                                MessageBoxProgram.ExecuteArgsAsync(new MessageBoxArgs
+                                {
+                                    UseDialog = true,
+                                    Title = "WinAgent",
+                                    Heading = heading,
+                                    Message = $"Current value is {sFormatted} (Copied to Clipboard).",
+                                    Icon = "shieldgreen",
+                                    Details = detailsStr
                                 }).Wait();
                             });
                             thread.SetApartmentState(ApartmentState.STA);

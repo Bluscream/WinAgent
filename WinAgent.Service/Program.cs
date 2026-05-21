@@ -151,6 +151,7 @@ public static class Program
         builder.Services.AddSingleton<PInvokeService>();
         builder.Services.AddSingleton<HardwareMonitorService>();
         builder.Services.AddSingleton<McpService>();
+        builder.Services.AddSingleton<IpcServerService>();
 
         // Register Features
         builder.Services.AddSingleton<WinAgent.Features.ScreenshotFeature>();
@@ -374,6 +375,7 @@ public static class Program
         builder.Services.AddHostedService(p => p.GetRequiredService<TrayStarterService>());
         builder.Services.AddHostedService(p => (MqttManager)p.GetRequiredService<IMqttManager>());
         builder.Services.AddHostedService(p => p.GetRequiredService<ShutdownBlockerService>());
+        builder.Services.AddHostedService(p => p.GetRequiredService<IpcServerService>());
         builder.Services.AddHostedService<MqttFeatureBindingService>();
 
         builder.Services.Configure<HostOptions>(options =>

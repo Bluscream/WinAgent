@@ -6,6 +6,8 @@ using WinAgent.Tools;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
 
 namespace WinAgent.Controllers;
 
@@ -28,38 +30,29 @@ public class SensorsController : ControllerBase
         public string? HardwareType { get; set; }
     }
 
-    [HttpGet]
-    public IActionResult GetSensors(
-        [FromQuery] string? hardwareIdentifier = null,
-        [FromQuery] string? sensorType = null,
-        [FromQuery] string? hardwareType = null)
+    [AcceptVerbs("GET", "POST")]
+    public async Task<IActionResult> GetSensors([FromQuery] SensorsFilterRequest? queryRequest)
     {
-        try
+        var request = queryRequest ?? new SensorsFilterRequest();
+
+        if (Request.HasJsonContentType())
         {
-            _hardwareMonitor.Update();
-
-            SensorType? sType = null;
-            HardwareType? hwType = null;
-
-            if (!string.IsNullOrEmpty(sensorType) && Enum.TryParse<SensorType>(sensorType, true, out var st))
-                sType = st;
-            if (!string.IsNullOrEmpty(hardwareType) && Enum.TryParse<HardwareType>(hardwareType, true, out var ht))
-                hwType = ht;
-
-            var sensors = _hardwareMonitor.GetAllSensors(hardwareIdentifier, sType, hwType);
-            var tree = WinAgent.Features.HardwareFeatureHelpers.FormatSensorsTree(sensors);
-
-            return Ok(tree);
+            try
+            {
+                var bodyRequest = await Request.ReadFromJsonAsync<SensorsFilterRequest>();
+                if (bodyRequest != null)
+                {
+                    if (!string.IsNullOrEmpty(bodyRequest.HardwareIdentifier)) 
+                        request.HardwareIdentifier = bodyRequest.HardwareIdentifier;
+                    if (!string.IsNullOrEmpty(bodyRequest.SensorType)) 
+                        request.SensorType = bodyRequest.SensorType;
+                    if (!string.IsNullOrEmpty(bodyRequest.HardwareType)) 
+                        request.HardwareType = bodyRequest.HardwareType;
+                }
+            }
+            catch { }
         }
-        catch (Exception ex)
-        {
-            return StatusCode(500, new { error = $"Failed to retrieve sensors: {ex.Message}" });
-        }
-    }
 
-    [HttpPost]
-    public IActionResult GetSensorsPost([FromBody] SensorsFilterRequest request)
-    {
         try
         {
             _hardwareMonitor.Update();

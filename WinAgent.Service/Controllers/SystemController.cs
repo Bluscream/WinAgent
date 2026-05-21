@@ -24,60 +24,64 @@ public class SystemController : ControllerBase
     private readonly ForceActionService _forceActionService;
     private readonly IMqttManager _mqtt;
     private readonly ProcessService _processService;
+    private readonly NotifyService _notifyService;
     private readonly ILogger<SystemController> _logger;
 
-    public SystemController(ShutdownBlockerService blocker, ForceActionService forceActionService, IMqttManager mqtt, ProcessService processService, ILogger<SystemController> logger)
+    public SystemController(ShutdownBlockerService blocker, ForceActionService forceActionService, IMqttManager mqtt, ProcessService processService, NotifyService notifyService, ILogger<SystemController> logger)
     {
         _blocker = blocker;
         _forceActionService = forceActionService;
         _mqtt = mqtt;
         _processService = processService;
+        _notifyService = notifyService;
         _logger = logger;
     }
 
-    [HttpPost("notify")]
-    public async Task<IActionResult> Notify([FromBody] NotifyRequest request)
+    [AcceptVerbs("GET", "POST"), Route("notify")]
+    public async Task<IActionResult> Notify([FromQuery] NotifyRequest? queryRequest)
     {
+        var request = queryRequest ?? new NotifyRequest();
+
+        if (Request.HasJsonContentType())
+        {
+            try
+            {
+                var bodyRequest = await Request.ReadFromJsonAsync<NotifyRequest>();
+                if (bodyRequest != null)
+                {
+                    if (!string.IsNullOrEmpty(bodyRequest.Message)) request.Message = bodyRequest.Message;
+                    if (!string.IsNullOrEmpty(bodyRequest.Title) && bodyRequest.Title != "Notification") request.Title = bodyRequest.Title;
+                    if (!string.IsNullOrEmpty(bodyRequest.Heading)) request.Heading = bodyRequest.Heading;
+                    if (!string.IsNullOrEmpty(bodyRequest.Footer)) request.Footer = bodyRequest.Footer;
+                    if (!string.IsNullOrEmpty(bodyRequest.Details)) request.Details = bodyRequest.Details;
+                    if (!string.IsNullOrEmpty(bodyRequest.Checkbox)) request.Checkbox = bodyRequest.Checkbox;
+                    if (!string.IsNullOrEmpty(bodyRequest.Type) && bodyRequest.Type != "toast") request.Type = bodyRequest.Type;
+                    if (!string.IsNullOrEmpty(bodyRequest.MessageBoxType) && bodyRequest.MessageBoxType != "ok") request.MessageBoxType = bodyRequest.MessageBoxType;
+                    if (!string.IsNullOrEmpty(bodyRequest.MessageBoxIcon) && bodyRequest.MessageBoxIcon != "info") request.MessageBoxIcon = bodyRequest.MessageBoxIcon;
+                    if (bodyRequest.Timeout != 0) request.Timeout = bodyRequest.Timeout;
+                    if (bodyRequest.Classic) request.Classic = bodyRequest.Classic;
+                    if (!string.IsNullOrEmpty(bodyRequest.Callback)) request.Callback = bodyRequest.Callback;
+                    if (bodyRequest.Flash) request.Flash = bodyRequest.Flash;
+                    if (bodyRequest.Ding) request.Ding = bodyRequest.Ding;
+                    if (bodyRequest.UseToast != null) request.UseToast = bodyRequest.UseToast;
+                    if (bodyRequest.UseMessageBox != null) request.UseMessageBox = bodyRequest.UseMessageBox;
+                    if (bodyRequest.UseBanner != null) request.UseBanner = bodyRequest.UseBanner;
+                    if (bodyRequest.UseXSOverlay != null) request.UseXSOverlay = bodyRequest.UseXSOverlay;
+                    if (bodyRequest.UseOVRToolkit != null) request.UseOVRToolkit = bodyRequest.UseOVRToolkit;
+                    if (!string.IsNullOrEmpty(bodyRequest.BannerPosition)) request.BannerPosition = bodyRequest.BannerPosition;
+                    if (!string.IsNullOrEmpty(bodyRequest.Image)) request.Image = bodyRequest.Image;
+                    if (bodyRequest.Data != null) request.Data = bodyRequest.Data;
+                }
+            }
+            catch { }
+        }
+
         if (string.IsNullOrEmpty(request.Message)) return BadRequest("Message is required.");
 
         try
         {
-            var machineName = Global.SafeMachineName;
-            
-            // Handle multiple notification types based on flags or the 'Type' string
-            bool useToast = request.UseToast ?? request.Type.Contains("toast", StringComparison.OrdinalIgnoreCase);
-            bool useMessageBox = request.UseMessageBox ?? request.Type.Contains("messagebox", StringComparison.OrdinalIgnoreCase);
-            bool useBanner = request.UseBanner ?? request.Type.Contains("banner", StringComparison.OrdinalIgnoreCase);
-            bool useXSOverlay = request.UseXSOverlay ?? request.Type.Contains("xsoverlay", StringComparison.OrdinalIgnoreCase);
-            bool useOVRToolkit = request.UseOVRToolkit ?? request.Type.Contains("ovrtoolkit", StringComparison.OrdinalIgnoreCase);
-
-            // Default to Toast if nothing specified
-            if (!useToast && !useMessageBox && !useBanner && !useXSOverlay && !useOVRToolkit) useToast = true;
-
-            var topic = $"homeassistant/notify/{machineName}/command";
-            var payload = JsonSerializer.Serialize(new ToastPayload
-            {
-                Title = request.Title,
-                Message = request.Message,
-                Data = request.Data,
-                UseMessageBox = useMessageBox,
-                UseBanner = useBanner,
-                BannerPosition = request.BannerPosition,
-                Heading = request.Heading,
-                Footer = request.Footer,
-                Details = request.Details,
-                Checkbox = request.Checkbox,
-                MessageBoxType = request.MessageBoxType,
-                MessageBoxIcon = request.MessageBoxIcon,
-                Timeout = request.Timeout,
-                Classic = request.Classic,
-                Callback = request.Callback,
-                Flash = request.Flash,
-                Ding = request.Ding,
-                UseXSOverlay = useXSOverlay,
-                UseOVRToolkit = useOVRToolkit
-            });
-            await _mqtt.EnqueueAsync(topic, payload, false);
+            var payload = _notifyService.MapRequestToPayload(request);
+            await _notifyService.ShowNotificationAsync(payload);
 
             return Ok(new { status = "success" });
         }
@@ -88,9 +92,29 @@ public class SystemController : ControllerBase
         }
     }
 
-    [HttpPost("start-process")]
-    public async Task<IActionResult> StartProcess([FromBody] StartProcessRequest request)
+    [AcceptVerbs("GET", "POST"), Route("start-process")]
+    public async Task<IActionResult> StartProcess([FromQuery] StartProcessRequest? queryRequest)
     {
+        var request = queryRequest ?? new StartProcessRequest();
+
+        if (Request.HasJsonContentType())
+        {
+            try
+            {
+                var bodyRequest = await Request.ReadFromJsonAsync<StartProcessRequest>();
+                if (bodyRequest != null)
+                {
+                    if (!string.IsNullOrEmpty(bodyRequest.Executable)) request.Executable = bodyRequest.Executable;
+                    if (!string.IsNullOrEmpty(bodyRequest.Arguments)) request.Arguments = bodyRequest.Arguments;
+                    if (!string.IsNullOrEmpty(bodyRequest.AsUser)) request.AsUser = bodyRequest.AsUser;
+                    if (bodyRequest.Elevated) request.Elevated = bodyRequest.Elevated;
+                    if (bodyRequest.WaitForExit) request.WaitForExit = bodyRequest.WaitForExit;
+                    if (bodyRequest.Timeout != 30000) request.Timeout = bodyRequest.Timeout;
+                }
+            }
+            catch { }
+        }
+
         if (string.IsNullOrEmpty(request.Executable)) return BadRequest("Executable is required.");
 
         try
@@ -112,60 +136,98 @@ public class SystemController : ControllerBase
         }
     }
 
-    [HttpGet("block-status")]
-    public IActionResult GetBlockStatus()
+    [AcceptVerbs("GET", "POST"), Route("block-shutdown"), Route("system/block-shutdown")]
+    public async Task<IActionResult> BlockShutdown([FromQuery] string? state)
     {
-        return Ok(new { enabled = _blocker.IsBlockingEnabled });
-    }
+        object? finalState = state;
 
-    [AcceptVerbs("GET", "POST"), Route("toggle-block")]
-    public async Task<IActionResult> ToggleBlock([FromQuery] bool? enabled)
-    {
-        bool finalEnabled = enabled ?? false;
-        
-        if (enabled == null && Request.HasJsonContentType())
+        if (string.IsNullOrEmpty(state) && Request.HasJsonContentType())
         {
-            try {
+            try
+            {
                 var body = await Request.ReadFromJsonAsync<JsonElement>();
-                if (body.TryGetProperty("enabled", out var prop)) 
-                    finalEnabled = prop.ValueKind == JsonValueKind.True;
-            } catch { }
+                if (body.TryGetProperty("state", out var prop))
+                {
+                    if (prop.ValueKind == JsonValueKind.True) finalState = true;
+                    else if (prop.ValueKind == JsonValueKind.False) finalState = false;
+                    else if (prop.ValueKind == JsonValueKind.Number && prop.TryGetInt32(out int val)) finalState = val;
+                    else if (prop.ValueKind == JsonValueKind.String) finalState = prop.GetString();
+                }
+                else if (body.TryGetProperty("State", out var propCamel))
+                {
+                    if (propCamel.ValueKind == JsonValueKind.True) finalState = true;
+                    else if (propCamel.ValueKind == JsonValueKind.False) finalState = false;
+                    else if (propCamel.ValueKind == JsonValueKind.Number && propCamel.TryGetInt32(out int val)) finalState = val;
+                    else if (propCamel.ValueKind == JsonValueKind.String) finalState = propCamel.GetString();
+                }
+            }
+            catch { }
         }
 
-        var machineName = Global.SafeMachineName;
-        var topic = $"homeassistant/switch/{machineName}_block_shutdown/set";
-        var payload = finalEnabled ? "ON" : "OFF";
-        await _mqtt.EnqueueAsync(topic, payload, true);
-        
-        return Ok(new { enabled = finalEnabled });
-    }
+        var currentVal = _blocker.IsBlockingEnabled;
+        var parsed = SystemHelper.ParseState(finalState, currentVal);
 
-    [HttpGet("force-status")]
-    public IActionResult GetForceStatus()
-    {
-        return Ok(new { enabled = _forceActionService.IsForceEnabled });
-    }
-
-    [AcceptVerbs("GET", "POST"), Route("toggle-force")]
-    public async Task<IActionResult> ToggleForce([FromQuery] bool? enabled)
-    {
-        bool finalEnabled = enabled ?? false;
-
-        if (enabled == null && Request.HasJsonContentType())
+        if (parsed.HasValue)
         {
-            try {
-                var body = await Request.ReadFromJsonAsync<JsonElement>();
-                if (body.TryGetProperty("enabled", out var prop)) 
-                    finalEnabled = prop.ValueKind == JsonValueKind.True;
-            } catch { }
+            var targetState = parsed.Value;
+            if (targetState != currentVal)
+            {
+                var machineName = Global.SafeMachineName;
+                var topic = $"homeassistant/switch/{machineName}_block_shutdown/set";
+                var payload = targetState ? "ON" : "OFF";
+                await _mqtt.EnqueueAsync(topic, payload, true);
+                currentVal = targetState;
+            }
         }
 
-        var machineName = Global.SafeMachineName;
-        var topic = $"homeassistant/switch/{machineName}_force_action/set";
-        var payload = finalEnabled ? "ON" : "OFF";
-        await _mqtt.EnqueueAsync(topic, payload, true);
-        
-        return Ok(new { enabled = finalEnabled });
+        return Ok(new { enabled = currentVal });
+    }
+
+    [AcceptVerbs("GET", "POST"), Route("force-action"), Route("system/force-action")]
+    public async Task<IActionResult> ForceAction([FromQuery] string? state)
+    {
+        object? finalState = state;
+
+        if (string.IsNullOrEmpty(state) && Request.HasJsonContentType())
+        {
+            try
+            {
+                var body = await Request.ReadFromJsonAsync<JsonElement>();
+                if (body.TryGetProperty("state", out var prop))
+                {
+                    if (prop.ValueKind == JsonValueKind.True) finalState = true;
+                    else if (prop.ValueKind == JsonValueKind.False) finalState = false;
+                    else if (prop.ValueKind == JsonValueKind.Number && prop.TryGetInt32(out int val)) finalState = val;
+                    else if (prop.ValueKind == JsonValueKind.String) finalState = prop.GetString();
+                }
+                else if (body.TryGetProperty("State", out var propCamel))
+                {
+                    if (propCamel.ValueKind == JsonValueKind.True) finalState = true;
+                    else if (propCamel.ValueKind == JsonValueKind.False) finalState = false;
+                    else if (propCamel.ValueKind == JsonValueKind.Number && propCamel.TryGetInt32(out int val)) finalState = val;
+                    else if (propCamel.ValueKind == JsonValueKind.String) finalState = propCamel.GetString();
+                }
+            }
+            catch { }
+        }
+
+        var currentVal = _forceActionService.IsForceEnabled;
+        var parsed = SystemHelper.ParseState(finalState, currentVal);
+
+        if (parsed.HasValue)
+        {
+            var targetState = parsed.Value;
+            if (targetState != currentVal)
+            {
+                var machineName = Global.SafeMachineName;
+                var topic = $"homeassistant/switch/{machineName}_force_action/set";
+                var payload = targetState ? "ON" : "OFF";
+                await _mqtt.EnqueueAsync(topic, payload, true);
+                currentVal = targetState;
+            }
+        }
+
+        return Ok(new { enabled = currentVal });
     }
 
     [AcceptVerbs("GET", "POST"), Route("execute")]
@@ -193,7 +255,7 @@ public class SystemController : ControllerBase
         return Ok(new { action = finalAction });
     }
 
-    [HttpGet("system/power-schemes")]
+    [AcceptVerbs("GET", "POST"), Route("system/power-schemes")]
     public IActionResult GetPowerSchemes()
     {
         try
@@ -250,50 +312,89 @@ public class SystemController : ControllerBase
     }
 
     [AcceptVerbs("GET", "POST"), Route("state")]
-    public async Task<IActionResult> ReportState([FromQuery] string state, [FromQuery] string? attributes = null)
+    public async Task<IActionResult> ReportState([FromQuery] string? state, [FromQuery] string? attributes = null)
     {
-        if (string.IsNullOrEmpty(state)) return BadRequest("State is required.");
+        string? finalState = state;
+        string? finalAttributes = attributes;
+
+        if (string.IsNullOrEmpty(finalState) && Request.HasJsonContentType())
+        {
+            try
+            {
+                var body = await Request.ReadFromJsonAsync<JsonElement>();
+                if (body.TryGetProperty("state", out var stateProp))
+                {
+                    finalState = stateProp.ValueKind == JsonValueKind.String ? stateProp.GetString() : stateProp.GetRawText();
+                }
+                if (body.TryGetProperty("attributes", out var attrProp))
+                {
+                    finalAttributes = attrProp.ValueKind == JsonValueKind.String ? attrProp.GetString() : attrProp.GetRawText();
+                }
+            }
+            catch { }
+        }
+
+        if (string.IsNullOrEmpty(finalState)) return BadRequest("State is required.");
 
         var machineName = Global.SafeMachineName;
         var topic = $"homeassistant/select/{machineName}/state";
-        await _mqtt.EnqueueAsync(topic, state, true);
+        await _mqtt.EnqueueAsync(topic, finalState, true);
 
-        if (!string.IsNullOrEmpty(attributes))
+        if (!string.IsNullOrEmpty(finalAttributes))
         {
             var attrTopic = $"homeassistant/select/{machineName}/attributes";
-            await _mqtt.EnqueueAsync(attrTopic, attributes, true);
+            await _mqtt.EnqueueAsync(attrTopic, finalAttributes, true);
         }
         
         return Ok(new { status = "success" });
     }
 
-    [HttpPost("event")]
-    public async Task<IActionResult> FireEvent([FromBody] JsonElement payload)
+    [AcceptVerbs("GET", "POST"), Route("event")]
+    public async Task<IActionResult> FireEvent([FromQuery] string? @event, [FromQuery] string? event_type = null)
     {
         try
         {
-            var rawJson = payload.GetRawText();
-            var node = JsonNode.Parse(rawJson);
-            
-            string? eventText = null;
-            string? eventType = null;
-            
-            if (node is JsonObject obj)
+            string? eventText = @event;
+            string? eventType = event_type;
+            JsonNode? node = null;
+
+            if (Request.HasJsonContentType())
             {
-                if (obj.TryGetPropertyValue("event", out var eTextNode) && eTextNode != null)
+                try
                 {
-                    eventText = eTextNode.ToString();
+                    var body = await Request.ReadFromJsonAsync<JsonElement>();
+                    var rawJson = body.GetRawText();
+                    node = JsonNode.Parse(rawJson);
+
+                    if (node is JsonObject obj)
+                    {
+                        if (obj.TryGetPropertyValue("event", out var eTextNode) && eTextNode != null)
+                        {
+                            eventText = eTextNode.ToString();
+                        }
+                        if (obj.TryGetPropertyValue("event_type", out var eTypeNode) && eTypeNode != null)
+                        {
+                            eventType = eTypeNode.ToString();
+                        }
+                    }
                 }
-                if (obj.TryGetPropertyValue("event_type", out var eTypeNode) && eTypeNode != null)
-                {
-                    eventType = eTypeNode.ToString();
-                }
+                catch { }
             }
-            
+
             if (string.IsNullOrEmpty(eventText))
             {
-                eventText = rawJson;
+                return BadRequest("Event text or body is required.");
             }
+
+            if (node == null)
+            {
+                node = new JsonObject
+                {
+                    ["event"] = eventText,
+                    ["event_type"] = eventType ?? "Generic CLI Event"
+                };
+            }
+
             if (string.IsNullOrEmpty(eventType))
             {
                 eventType = "Generic CLI Event";

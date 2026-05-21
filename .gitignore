@@ -24,5 +24,6 @@ appsettings.Development.json
 # Tooling
 .gemini/
 .antigravity/
-tools/automations.yaml
-tools/scripts.yaml
+automations.yaml
+scripts.yaml
+scratch/
