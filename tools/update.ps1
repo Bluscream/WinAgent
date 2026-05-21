@@ -6,7 +6,7 @@ param (
     [switch]$Install,
     [switch]$Start,
     [switch]$StartTray,
-    [string]$DeployPath = "D:\Scripts\WinAgent.Service.exe"
+    [string]$DeployPath = "C:\Program Files\WinAgent\WinAgent.Service.exe"
 )
 
 # Self-elevate script if not running as Administrator

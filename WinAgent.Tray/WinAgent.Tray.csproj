@@ -8,7 +8,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationIcon>..\assets\icon.ico</ApplicationIcon>
-    <Version>2.14.0</Version>
+    <Version>2.15.0</Version>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 
@@ -33,6 +33,7 @@
   </ItemGroup>
 
 </Project>
+
 
 
 

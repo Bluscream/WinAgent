@@ -1,6 +1,6 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
-  <Package Name="WinAgent" Manufacturer="Bluscream" Version="2.14.0" UpgradeCode="2455A1F6-65DF-453D-940E-07498EA34293" Scope="perMachine">
+  <Package Name="WinAgent" Manufacturer="Bluscream" Version="2.15.0" UpgradeCode="2455A1F6-65DF-453D-940E-07498EA34293" Scope="perMachine">
     <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." AllowSameVersionUpgrades="yes" />
     
     <MediaTemplate EmbedCab="yes" />
@@ -113,4 +113,5 @@
     </Feature>
   </Package>
 </Wix>
+
 
