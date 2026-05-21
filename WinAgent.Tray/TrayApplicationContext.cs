@@ -50,6 +50,9 @@ public class TrayApplicationContext : ApplicationContext
         _ipcClient = new TrayIpcClient(_token, msg => Debug.WriteLine($"[TrayIPC] {msg}"));
         _ipcClient.Start();
 
+        // Start the shared banner UI thread eagerly so the first banner shows without delay
+        TrayBannerService.Start();
+
         _messageWindow = new HiddenMessageWindow(this);
         _messageWindow.Show();
 
@@ -359,6 +362,7 @@ public class TrayApplicationContext : ApplicationContext
     private void ExitApplication(object? sender, EventArgs e)
     {
         try { _ipcClient?.Stop(); } catch { }
+        try { TrayBannerService.Stop(); } catch { }
         _serviceMonitorTimer?.Stop();
         _notifyIcon.Visible = false;
         _notifyIcon.Dispose();

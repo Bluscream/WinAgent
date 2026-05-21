@@ -21,6 +21,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\WinAgent.Common\WinAgent.Common.csproj" />
+    <ProjectReference Include="..\.references\SoundSwitch.Banner\SoundSwitch.Banner.csproj" />
+    <ProjectReference Include="..\.references\Modern-Windows-Message-Box-Generator\Source\CLI\Modern-Windows-Message-Box-Generator.CLI.csproj" />
   </ItemGroup>
 
   <ItemGroup>

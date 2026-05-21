@@ -145,43 +145,66 @@ public class TrayIpcClient
                                         var payload = JsonSerializer.Deserialize<ToastPayload>(msg.Payload ?? "{}");
                                         if (payload != null)
                                         {
-                                            // Execute on a background STA thread for Windows Forms compatibility
-                                            var thread = new Thread(() =>
+                                            // ── Banner: route through the shared TrayBannerService ──────────
+                                            if (payload.UseBanner)
                                             {
-                                                try
+                                                _ = TrayBannerService.ShowAsync(
+                                                    title: payload.Title ?? "WinAgent",
+                                                    message: payload.Message ?? "",
+                                                    position: payload.BannerPosition ?? "TopLeft",
+                                                    imagePath: payload.Data?.Image,
+                                                    durationSeconds: payload.Data?.Duration > 0
+                                                        ? payload.Data.Duration
+                                                        : (payload.Timeout > 0 ? payload.Timeout / 1000 : 3)
+                                                ).ContinueWith(t =>
                                                 {
-                                                    Modern_Windows_Message_Box_Generator.CLI.Program.ExecuteArgsAsync(new Modern_Windows_Message_Box_Generator.CLI.MessageBoxArgs
+                                                    if (t.IsFaulted)
+                                                        _logger($"Banner error: {t.Exception?.InnerException?.Message}");
+                                                }, TaskScheduler.Default);
+                                            }
+
+                                            // ── All other notification types: per-request STA thread ────────
+                                            bool hasNonBannerType = payload.UseMessageBox || payload.UseToast
+                                                || payload.UseXSOverlay || payload.UseOVRToolkit;
+
+                                            if (hasNonBannerType)
+                                            {
+                                                var thread = new Thread(() =>
+                                                {
+                                                    try
                                                     {
-                                                        Title = payload.Title ?? "WinAgent",
-                                                        Message = payload.Message ?? "",
-                                                        UseDialog = payload.UseMessageBox,
-                                                        UseBanner = payload.UseBanner,
-                                                        UseXSOverlay = payload.UseXSOverlay,
-                                                        UseOVRToolkit = payload.UseOVRToolkit,
-                                                        UseToast = payload.UseToast,
-                                                        Heading = payload.Heading ?? "",
-                                                        Footer = payload.Footer ?? "",
-                                                        Details = payload.Details ?? "",
-                                                        Checkbox = payload.Checkbox ?? "",
-                                                        Type = payload.MessageBoxType ?? "ok",
-                                                        Icon = payload.MessageBoxIcon ?? "info",
-                                                        Timeout = payload.Timeout,
-                                                        Classic = payload.Classic,
-                                                        CallbackUrl = payload.Callback ?? "",
-                                                        Flash = payload.Flash,
-                                                        Ding = payload.Ding,
-                                                        BannerPos = payload.BannerPosition ?? "TopLeft",
-                                                        ImagePath = payload.Data?.Image ?? "",
-                                                        Duration = payload.Data?.Duration > 0 ? payload.Data.Duration : (payload.Timeout > 0 ? payload.Timeout / 1000 : 3)
-                                                    }).Wait();
-                                                }
-                                                catch (Exception ex)
-                                                {
-                                                    _logger($"Error running enhanced notification: {ex.Message}");
-                                                }
-                                            });
-                                            thread.SetApartmentState(ApartmentState.STA);
-                                            thread.Start();
+                                                        Modern_Windows_Message_Box_Generator.CLI.Program.ExecuteArgsAsync(new Modern_Windows_Message_Box_Generator.CLI.MessageBoxArgs
+                                                        {
+                                                            Title = payload.Title ?? "WinAgent",
+                                                            Message = payload.Message ?? "",
+                                                            UseDialog = payload.UseMessageBox,
+                                                            UseBanner = false, // already handled above
+                                                            UseXSOverlay = payload.UseXSOverlay,
+                                                            UseOVRToolkit = payload.UseOVRToolkit,
+                                                            UseToast = payload.UseToast,
+                                                            Heading = payload.Heading ?? "",
+                                                            Footer = payload.Footer ?? "",
+                                                            Details = payload.Details ?? "",
+                                                            Checkbox = payload.Checkbox ?? "",
+                                                            Type = payload.MessageBoxType ?? "ok",
+                                                            Icon = payload.MessageBoxIcon ?? "info",
+                                                            Timeout = payload.Timeout,
+                                                            Classic = payload.Classic,
+                                                            CallbackUrl = payload.Callback ?? "",
+                                                            Flash = payload.Flash,
+                                                            Ding = payload.Ding,
+                                                            ImagePath = payload.Data?.Image ?? "",
+                                                            Duration = payload.Data?.Duration > 0 ? payload.Data.Duration : (payload.Timeout > 0 ? payload.Timeout / 1000 : 3)
+                                                        }).Wait();
+                                                    }
+                                                    catch (Exception ex)
+                                                    {
+                                                        _logger($"Error running enhanced notification: {ex.Message}");
+                                                    }
+                                                });
+                                                thread.SetApartmentState(ApartmentState.STA);
+                                                thread.Start();
+                                            }
 
                                             response.Success = true;
                                             response.Payload = "Notification triggered";
