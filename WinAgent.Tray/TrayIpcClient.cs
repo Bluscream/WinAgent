@@ -158,6 +158,7 @@ public class TrayIpcClient
                                                         UseBanner = payload.UseBanner,
                                                         UseXSOverlay = payload.UseXSOverlay,
                                                         UseOVRToolkit = payload.UseOVRToolkit,
+                                                        UseToast = payload.UseToast,
                                                         Heading = payload.Heading ?? "",
                                                         Footer = payload.Footer ?? "",
                                                         Details = payload.Details ?? "",
@@ -189,6 +190,40 @@ public class TrayIpcClient
                                         {
                                             response.Success = false;
                                             response.Error = "Invalid toast payload";
+                                        }
+                                    }
+                                    else if (msg.Path == "tray/screenshot")
+                                    {
+                                        var req = JsonSerializer.Deserialize<TrayScreenshotRequest>(msg.Payload ?? "{}");
+                                        var display = req?.Display ?? "all";
+                                        var quality = req?.Quality ?? 75;
+                                        var format = req?.Format ?? "png";
+
+                                        byte[]? bytes = null;
+                                        var thread = new Thread(() =>
+                                        {
+                                            try
+                                            {
+                                                bytes = WinAgent.Utils.SessionHelper.CaptureScreenshotBytes(display, quality, format);
+                                            }
+                                            catch (Exception ex)
+                                            {
+                                                _logger($"Error capturing screenshot in Tray: {ex.Message}");
+                                            }
+                                        });
+                                        thread.SetApartmentState(ApartmentState.STA);
+                                        thread.Start();
+                                        thread.Join();
+
+                                        if (bytes != null)
+                                        {
+                                            response.Success = true;
+                                            response.Payload = Convert.ToBase64String(bytes);
+                                        }
+                                        else
+                                        {
+                                            response.Success = false;
+                                            response.Error = "Failed to capture screenshot in Tray session context.";
                                         }
                                     }
                                     else
@@ -289,4 +324,11 @@ public class TrayIpcClient
             _pendingRequests.TryRemove(messageId, out _);
         }
     }
+}
+
+public class TrayScreenshotRequest
+{
+    public string Display { get; set; } = "all";
+    public int Quality { get; set; } = 75;
+    public string Format { get; set; } = "png";
 }

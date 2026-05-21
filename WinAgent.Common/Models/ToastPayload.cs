@@ -94,4 +94,7 @@ public class ToastPayload
 
     [JsonPropertyName("use_ovrtoolkit")]
     public bool UseOVRToolkit { get; set; }
+
+    [JsonPropertyName("use_toast")]
+    public bool UseToast { get; set; }
 }

@@ -56,6 +56,105 @@ public static class SessionHelper
     }
 
 
+    public static byte[]? CaptureScreenshotBytes(string display = "all", int quality = 75, string format = "png")
+    {
+        bool usePng = string.Equals(format, "png", StringComparison.OrdinalIgnoreCase);
+
+        // Try DXGI first unless capturing all screens (DXGI is per-monitor) or format is PNG
+        if (!usePng && !display.Equals("all", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                using var dxgi = new WinAgent.Utils.Capture.DxgiCaptureBackend();
+                dxgi.Initialize(display);
+                var frameTask = dxgi.CaptureFrame(quality);
+                frameTask.Wait();
+                var bytes = frameTask.Result;
+                if (bytes != null && bytes.Length > 100)
+                {
+                    return bytes;
+                }
+            }
+            catch
+            {
+                // Fallback to GDI
+            }
+        }
+
+        // Fallback to GDI
+        var screensList = new List<Rectangle>();
+        NativeMethods.EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, (IntPtr hMonitor, IntPtr hdcMonitor, ref NativeMethods.Rect lprcMonitor, IntPtr dwData) =>
+        {
+            screensList.Add(new Rectangle(lprcMonitor.Left, lprcMonitor.Top, lprcMonitor.Right - lprcMonitor.Left, lprcMonitor.Bottom - lprcMonitor.Top));
+            return true;
+        }, IntPtr.Zero);
+
+        if (screensList.Count == 0 && Screen.PrimaryScreen != null)
+            screensList.Add(Screen.PrimaryScreen.Bounds);
+
+        Rectangle[] targetBounds;
+        if (display.Equals("all", StringComparison.OrdinalIgnoreCase))
+        {
+            targetBounds = screensList.ToArray();
+        }
+        else
+        {
+            var byName = new List<Rectangle>();
+            NativeMethods.EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, (IntPtr hMonitor, IntPtr hdcMonitor, ref NativeMethods.Rect lprcMonitor, IntPtr dwData) =>
+            {
+                var mi = NativeMethods.MONITORINFOEX.Create();
+                if (NativeMethods.GetMonitorInfo(hMonitor, ref mi))
+                {
+                    if (string.Equals(mi.szDevice, display, StringComparison.OrdinalIgnoreCase) || display.Contains(mi.szDevice.Replace("\\\\.\\", ""), StringComparison.OrdinalIgnoreCase))
+                        byName.Add(new Rectangle(mi.rcMonitor.Left, mi.rcMonitor.Top, mi.rcMonitor.Right - mi.rcMonitor.Left, mi.rcMonitor.Bottom - mi.rcMonitor.Top));
+                }
+                return true;
+            }, IntPtr.Zero);
+
+            if (byName.Count > 0) targetBounds = byName.ToArray();
+            else if (int.TryParse(display, out int idx) && idx >= 0 && idx < screensList.Count) targetBounds = new[] { screensList[idx] };
+            else targetBounds = new[] { screensList[0] };
+        }
+
+        if (targetBounds.Length == 0) return null;
+
+        int minX = targetBounds.Min(s => s.X);
+        int minY = targetBounds.Min(s => s.Y);
+        int maxX = targetBounds.Max(s => s.Right);
+        int maxY = targetBounds.Max(s => s.Bottom);
+        int width = maxX - minX;
+        int height = maxY - minY;
+
+        using var bitmap = new Bitmap(width, height, usePng ? PixelFormat.Format32bppArgb : PixelFormat.Format24bppRgb);
+        using (var g = Graphics.FromImage(bitmap))
+        {
+            if (usePng) g.Clear(Color.FromArgb(0, 0, 0, 0));
+            foreach (var bounds in targetBounds)
+                g.CopyFromScreen(bounds.X, bounds.Y, bounds.X - minX, bounds.Y - minY, bounds.Size);
+        }
+
+        using var ms = new MemoryStream();
+        if (usePng)
+        {
+            bitmap.Save(ms, ImageFormat.Png);
+        }
+        else
+        {
+            var codec = ImageCodecInfo.GetImageEncoders().FirstOrDefault(c => c.MimeType == "image/jpeg");
+            if (codec != null)
+            {
+                var encoderParams = new EncoderParameters(1);
+                encoderParams.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, (long)quality);
+                bitmap.Save(ms, codec, encoderParams);
+            }
+            else
+            {
+                bitmap.Save(ms, ImageFormat.Jpeg);
+            }
+        }
+        return ms.ToArray();
+    }
+
     private static void HandleScreenshot(string[] args, Action<string> Log)
     {
         if (args.Contains("--list-screens"))
@@ -102,107 +201,22 @@ public static class SessionHelper
         if (displayIdx >= 0 && displayIdx + 1 < args.Length) display = args[displayIdx + 1];
 
         bool usePng = args.Contains("--png");
-        bool forceGdi = args.Contains("--force-gdi");
 
-        // Try DXGI first unless forced to GDI or capturing all screens (DXGI is per-monitor)
-        if (!forceGdi && !usePng && !display.Equals("all", StringComparison.OrdinalIgnoreCase))
+        var bytes = CaptureScreenshotBytes(display, quality, usePng ? "png" : "jpeg");
+        if (bytes == null || bytes.Length == 0)
         {
-            try
-            {
-                using var dxgi = new WinAgent.Utils.Capture.DxgiCaptureBackend();
-                dxgi.Initialize(display);
-                var frameTask = dxgi.CaptureFrame(quality);
-                frameTask.Wait();
-                var bytes = frameTask.Result;
-                
-                if (bytes != null && bytes.Length > 100)
-                {
-                    Log($"DXGI capture successful ({bytes.Length} bytes)");
-                    if (!string.IsNullOrEmpty(outPath)) File.WriteAllBytes(outPath, bytes);
-                    else Console.Write("data:image/jpeg;base64," + Convert.ToBase64String(bytes));
-                    return;
-                }
-                Log("DXGI capture returned no data, falling back to GDI.");
-            }
-            catch (Exception ex)
-            {
-                Log($"DXGI capture failed: {ex.Message}. Falling back to GDI.");
-            }
-        }
-
-        // Fallback to GDI (Existing logic)
-        var screensList = new List<Rectangle>();
-        NativeMethods.EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, (IntPtr hMonitor, IntPtr hdcMonitor, ref NativeMethods.Rect lprcMonitor, IntPtr dwData) =>
-        {
-            screensList.Add(new Rectangle(lprcMonitor.Left, lprcMonitor.Top, lprcMonitor.Right - lprcMonitor.Left, lprcMonitor.Bottom - lprcMonitor.Top));
-            return true;
-        }, IntPtr.Zero);
-
-        if (screensList.Count == 0 && Screen.PrimaryScreen != null)
-            screensList.Add(Screen.PrimaryScreen.Bounds);
-
-        Rectangle[] targetBounds;
-        if (display.Equals("all", StringComparison.OrdinalIgnoreCase))
-        {
-            targetBounds = screensList.ToArray();
-        }
-        else
-        {
-            var byName = new List<Rectangle>();
-            NativeMethods.EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, (IntPtr hMonitor, IntPtr hdcMonitor, ref NativeMethods.Rect lprcMonitor, IntPtr dwData) =>
-            {
-                var mi = NativeMethods.MONITORINFOEX.Create();
-                if (NativeMethods.GetMonitorInfo(hMonitor, ref mi))
-                {
-                    if (string.Equals(mi.szDevice, display, StringComparison.OrdinalIgnoreCase) || display.Contains(mi.szDevice.Replace("\\\\.\\", ""), StringComparison.OrdinalIgnoreCase))
-                        byName.Add(new Rectangle(mi.rcMonitor.Left, mi.rcMonitor.Top, mi.rcMonitor.Right - mi.rcMonitor.Left, mi.rcMonitor.Bottom - mi.rcMonitor.Top));
-                }
-                return true;
-            }, IntPtr.Zero);
-
-            if (byName.Count > 0) targetBounds = byName.ToArray();
-            else if (int.TryParse(display, out int idx) && idx >= 0 && idx < screensList.Count) targetBounds = new[] { screensList[idx] };
-            else targetBounds = new[] { screensList[0] };
-        }
-
-        if (targetBounds.Length == 0) return;
-
-        int minX = targetBounds.Min(s => s.X);
-        int minY = targetBounds.Min(s => s.Y);
-        int maxX = targetBounds.Max(s => s.Right);
-        int maxY = targetBounds.Max(s => s.Bottom);
-        int width = maxX - minX;
-        int height = maxY - minY;
-
-        using var bitmap = new Bitmap(width, height, usePng ? PixelFormat.Format32bppArgb : PixelFormat.Format24bppRgb);
-        using (var g = Graphics.FromImage(bitmap))
-        {
-            if (usePng) g.Clear(Color.FromArgb(0, 0, 0, 0));
-            foreach (var bounds in targetBounds)
-                g.CopyFromScreen(bounds.X, bounds.Y, bounds.X - minX, bounds.Y - minY, bounds.Size);
+            Log("Capture failed to return bytes.");
+            return;
         }
 
         if (!string.IsNullOrEmpty(outPath))
         {
-            if (usePng) bitmap.Save(outPath, ImageFormat.Png);
-            else
-            {
-                var codec = ImageCodecInfo.GetImageEncoders().FirstOrDefault(c => c.MimeType == "image/jpeg");
-                if (codec != null)
-                {
-                    var encoderParams = new EncoderParameters(1);
-                    encoderParams.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, (long)quality);
-                    bitmap.Save(outPath, codec, encoderParams);
-                }
-                else bitmap.Save(outPath, ImageFormat.Jpeg);
-            }
+            File.WriteAllBytes(outPath, bytes);
+            Log($"Screenshot saved successfully to: {outPath}");
         }
         else
         {
-            using var ms = new MemoryStream();
-            if (usePng) bitmap.Save(ms, ImageFormat.Png);
-            else bitmap.Save(ms, ImageFormat.Jpeg);
-            Console.Write("data:image/" + (usePng ? "png" : "jpeg") + ";base64," + Convert.ToBase64String(ms.ToArray()));
+            Console.Write("data:image/" + (usePng ? "png" : "jpeg") + ";base64," + Convert.ToBase64String(bytes));
         }
     }
 

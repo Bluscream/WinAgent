@@ -19,6 +19,8 @@ public class IpcServerService : BackgroundService
     private static NamedPipeServerStream? _activeServer;
     private static readonly object _sendLock = new();
 
+    public static bool IsTrayConnected => _activeServer != null && _activeServer.IsConnected;
+
     public IpcServerService(TokenService tokenService, IServiceProvider serviceProvider, ILogger<IpcServerService> logger)
     {
         _tokenService = tokenService;
