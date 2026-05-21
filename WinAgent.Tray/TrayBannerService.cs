@@ -121,6 +121,9 @@ public static class TrayBannerService
         string position = "TopLeft",
         string? imagePath = null,
         int durationSeconds = 3,
+        string? callback = null,
+        string? priority = null,
+        bool ding = false,
         int startupTimeoutMs = 3000)
     {
         // Ensure the thread is running
@@ -138,6 +141,13 @@ public static class TrayBannerService
         if (!Enum.TryParse<BannerPosition>(position, ignoreCase: true, out var pos))
             pos = BannerPosition.TopLeft;
 
+        // Play notification sound before showing the banner
+        if (ding)
+        {
+            try { System.Media.SystemSounds.Exclamation.Play(); }
+            catch { /* swallow */ }
+        }
+
         // Resolve image (may involve async I/O – do it outside the UI thread)
         Image? resolvedImage = null;
         if (!string.IsNullOrWhiteSpace(imagePath))
@@ -146,13 +156,37 @@ public static class TrayBannerService
             catch { /* swallow – image is optional */ }
         }
 
+        // Map priority string to int (higher = more important)
+        int priorityInt = MapPriority(priority);
+
+        // Build the OnClick handler for callback URL
+        EventHandler? onClick = null;
+        if (!string.IsNullOrWhiteSpace(callback))
+        {
+            onClick = (sender, e) =>
+            {
+                try
+                {
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = callback,
+                        UseShellExecute = true
+                    });
+                }
+                catch { /* swallow – best effort */ }
+                // Dispose the banner form after click
+                if (sender is IDisposable d) d.Dispose();
+            };
+        }
+
         var request = new BannerRequest
         {
             Title = title,
             Text = message,
             Image = resolvedImage,
-            Priority = 1,
-            Ttl = TimeSpan.FromSeconds(durationSeconds > 0 ? durationSeconds : 3)
+            Priority = priorityInt,
+            Ttl = TimeSpan.FromSeconds(durationSeconds > 0 ? durationSeconds : 3),
+            OnClick = onClick
         };
 
         // Marshal to the STA UI thread – Show() uses _syncContext.Send() internally,
@@ -172,5 +206,19 @@ public static class TrayBannerService
         }, null);
 
         await tcs.Task;
+    }
+
+    private static int MapPriority(string? priority)
+    {
+        if (string.IsNullOrWhiteSpace(priority)) return 1;
+        return priority.ToLowerInvariant() switch
+        {
+            "min" => -2,
+            "low" => -1,
+            "default" => 0,
+            "high" => 1,
+            "max" => 2,
+            _ => int.TryParse(priority, out var v) ? v : 1
+        };
     }
 }

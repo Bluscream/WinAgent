@@ -155,7 +155,10 @@ public class TrayIpcClient
                                                     imagePath: payload.Data?.Image,
                                                     durationSeconds: payload.Data?.Duration > 0
                                                         ? payload.Data.Duration
-                                                        : (payload.Timeout > 0 ? payload.Timeout / 1000 : 3)
+                                                        : (payload.Timeout > 0 ? payload.Timeout / 1000 : 3),
+                                                    callback: payload.Callback ?? payload.ClickAction,
+                                                    priority: payload.Priority,
+                                                    ding: payload.Ding
                                                 ).ContinueWith(t =>
                                                 {
                                                     if (t.IsFaulted)

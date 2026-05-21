@@ -70,6 +70,12 @@ public class SystemController : ControllerBase
                     if (bodyRequest.UseOVRToolkit != null) request.UseOVRToolkit = bodyRequest.UseOVRToolkit;
                     if (!string.IsNullOrEmpty(bodyRequest.BannerPosition)) request.BannerPosition = bodyRequest.BannerPosition;
                     if (!string.IsNullOrEmpty(bodyRequest.Image)) request.Image = bodyRequest.Image;
+                    if (bodyRequest.Persistent) request.Persistent = bodyRequest.Persistent;
+                    if (!string.IsNullOrEmpty(bodyRequest.Priority)) request.Priority = bodyRequest.Priority;
+                    if (!string.IsNullOrEmpty(bodyRequest.Tag)) request.Tag = bodyRequest.Tag;
+                    if (!string.IsNullOrEmpty(bodyRequest.Group)) request.Group = bodyRequest.Group;
+                    if (bodyRequest.Duration != 0) request.Duration = bodyRequest.Duration;
+                    if (!string.IsNullOrEmpty(bodyRequest.ClickAction)) request.ClickAction = bodyRequest.ClickAction;
                     if (bodyRequest.Data != null) request.Data = bodyRequest.Data;
                 }
             }

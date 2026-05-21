@@ -45,10 +45,20 @@ public class NotifyService
         if (!useToast && !useMessageBox && !useBanner && !useXSOverlay && !useOVRToolkit) useToast = true;
 
         var data = request.Data ?? new NotificationData();
+
+        // Merge top-level convenience fields into Data sub-object
         if (string.IsNullOrEmpty(data.Image) && !string.IsNullOrEmpty(request.Image))
-        {
             data.Image = request.Image;
-        }
+        if (string.IsNullOrEmpty(data.Tag) && !string.IsNullOrEmpty(request.Tag))
+            data.Tag = request.Tag;
+        if (string.IsNullOrEmpty(data.Group) && !string.IsNullOrEmpty(request.Group))
+            data.Group = request.Group;
+        if (data.ClickAction == NotificationData.NoAction && !string.IsNullOrEmpty(request.ClickAction))
+            data.ClickAction = request.ClickAction;
+        if (data.Duration == 0 && request.Duration > 0)
+            data.Duration = request.Duration;
+        if (request.Persistent && !data.Sticky)
+            data.Sticky = true;
 
         return new ToastPayload
         {
@@ -71,7 +81,12 @@ public class NotifyService
             Ding = request.Ding,
             UseXSOverlay = useXSOverlay,
             UseOVRToolkit = useOVRToolkit,
-            UseToast = useToast
+            UseToast = useToast,
+            Persistent = request.Persistent,
+            Priority = request.Priority,
+            Tag = request.Tag ?? data.Tag,
+            Group = request.Group ?? data.Group,
+            ClickAction = request.ClickAction ?? (data.ClickAction != NotificationData.NoAction ? data.ClickAction : null)
         };
     }
 
@@ -82,6 +97,20 @@ public class NotifyService
         try
         {
             if (payload.Data == null) payload.Data = new NotificationData();
+
+            // Merge top-level properties from direct deserialization (e.g., from MQTT payloads)
+            if (string.IsNullOrEmpty(payload.Data.Image) && !string.IsNullOrEmpty(payload.Image))
+                payload.Data.Image = payload.Image;
+            if (string.IsNullOrEmpty(payload.Data.Tag) && !string.IsNullOrEmpty(payload.Tag))
+                payload.Data.Tag = payload.Tag;
+            if (string.IsNullOrEmpty(payload.Data.Group) && !string.IsNullOrEmpty(payload.Group))
+                payload.Data.Group = payload.Group;
+            if (payload.Data.ClickAction == NotificationData.NoAction && !string.IsNullOrEmpty(payload.ClickAction))
+                payload.Data.ClickAction = payload.ClickAction;
+            if (payload.Data.Duration == 0 && payload.Timeout > 0)
+                payload.Data.Duration = payload.Timeout / 1000;
+            if (payload.Persistent && !payload.Data.Sticky)
+                payload.Data.Sticky = true;
 
             // 1. If Tray App is connected over authed Named Pipe IPC, delegate everything to it!
             if (IpcServerService.IsTrayConnected)
@@ -185,14 +214,16 @@ public class NotifyService
                     }
                 }
 
-                if (payload.Data?.Sticky == true) builder.SetToastScenario(ToastScenario.Reminder);
+                if (payload.Persistent || payload.Data?.Sticky == true) builder.SetToastScenario(ToastScenario.Reminder);
                 else if (payload.Data?.Importance == NotificationData.ImportanceHigh) builder.SetToastScenario(ToastScenario.Alarm);
 
                 var toast = builder.GetToastContent();
                 var notification = new ToastNotification(toast.GetXml());
 
-                if (!string.IsNullOrWhiteSpace(payload.Data?.Tag)) notification.Tag = payload.Data.Tag;
-                if (!string.IsNullOrWhiteSpace(payload.Data?.Group)) notification.Group = payload.Data.Group;
+                var tagVal = !string.IsNullOrWhiteSpace(payload.Tag) ? payload.Tag : payload.Data?.Tag;
+                var groupVal = !string.IsNullOrWhiteSpace(payload.Group) ? payload.Group : payload.Data?.Group;
+                if (!string.IsNullOrWhiteSpace(tagVal)) notification.Tag = tagVal;
+                if (!string.IsNullOrWhiteSpace(groupVal)) notification.Group = groupVal;
 
                 if (payload.Data?.Duration > 0)
                     notification.ExpirationTime = DateTimeOffset.Now.AddSeconds(payload.Data.Duration);

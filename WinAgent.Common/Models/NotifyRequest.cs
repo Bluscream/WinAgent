@@ -68,6 +68,24 @@ public class NotifyRequest
     [JsonPropertyName("image")]
     public string? Image { get; set; }
 
+    [JsonPropertyName("persistent")]
+    public bool Persistent { get; set; }
+
+    [JsonPropertyName("priority")]
+    public string? Priority { get; set; }
+
+    [JsonPropertyName("tag")]
+    public string? Tag { get; set; }
+
+    [JsonPropertyName("group")]
+    public string? Group { get; set; }
+
+    [JsonPropertyName("duration")]
+    public int Duration { get; set; }
+
+    [JsonPropertyName("click_action")]
+    public string? ClickAction { get; set; }
+
     [JsonPropertyName("data")]
     public NotificationData? Data { get; set; }
 }

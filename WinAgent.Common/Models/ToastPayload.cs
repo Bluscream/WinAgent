@@ -97,4 +97,22 @@ public class ToastPayload
 
     [JsonPropertyName("use_toast")]
     public bool UseToast { get; set; }
+
+    [JsonPropertyName("persistent")]
+    public bool Persistent { get; set; }
+
+    [JsonPropertyName("priority")]
+    public string? Priority { get; set; }
+
+    [JsonPropertyName("tag")]
+    public string? Tag { get; set; }
+
+    [JsonPropertyName("group")]
+    public string? Group { get; set; }
+
+    [JsonPropertyName("click_action")]
+    public string? ClickAction { get; set; }
+
+    [JsonPropertyName("image")]
+    public string? Image { get; set; }
 }
