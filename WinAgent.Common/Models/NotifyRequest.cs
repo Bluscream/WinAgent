@@ -32,6 +32,9 @@ public class NotifyRequest
     [JsonPropertyName("msgbox_icon")]
     public string MessageBoxIcon { get; set; } = "info";
 
+    [JsonPropertyName("icon")]
+    public string? Icon { get; set; }
+
     [JsonPropertyName("timeout")]
     public int Timeout { get; set; } = 0;
 

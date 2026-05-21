@@ -34,6 +34,19 @@ public class NotifyService
 
     public ToastPayload MapRequestToPayload(NotifyRequest request)
     {
+        // Unify type vs msgbox_type
+        var isMessageBoxButtonType = request.Type.Equals("ok", StringComparison.OrdinalIgnoreCase) ||
+                                     request.Type.Equals("okcancel", StringComparison.OrdinalIgnoreCase) ||
+                                     request.Type.Equals("yesno", StringComparison.OrdinalIgnoreCase) ||
+                                     request.Type.Equals("yesnocancel", StringComparison.OrdinalIgnoreCase) ||
+                                     request.Type.Equals("retrycancel", StringComparison.OrdinalIgnoreCase) ||
+                                     request.Type.Equals("abortretryignore", StringComparison.OrdinalIgnoreCase);
+        if (isMessageBoxButtonType)
+        {
+            request.MessageBoxType = request.Type;
+            request.Type = "messagebox";
+        }
+
         // Handle multiple notification types based on flags or the 'Type' string
         bool useToast = request.UseToast ?? request.Type.Contains("toast", StringComparison.OrdinalIgnoreCase);
         bool useMessageBox = request.UseMessageBox ?? request.Type.Contains("messagebox", StringComparison.OrdinalIgnoreCase);
@@ -44,6 +57,31 @@ public class NotifyService
         // Default to Toast if nothing specified
         if (!useToast && !useMessageBox && !useBanner && !useXSOverlay && !useOVRToolkit) useToast = true;
 
+        // Unify timeout and duration
+        if (request.Duration == 0 && request.Timeout > 0)
+        {
+            request.Duration = request.Timeout / 1000;
+        }
+        else if (request.Timeout == 0 && request.Duration > 0)
+        {
+            request.Timeout = request.Duration * 1000;
+        }
+
+        // Unify callback & click action
+        var clickUrl = request.ClickAction ?? request.Callback;
+        if (!string.IsNullOrEmpty(clickUrl))
+        {
+            request.ClickAction = clickUrl;
+            request.Callback = clickUrl;
+        }
+
+        // Unify icon & msgbox_icon
+        var iconVal = request.Icon ?? request.MessageBoxIcon;
+        if (!string.IsNullOrEmpty(iconVal))
+        {
+            request.MessageBoxIcon = iconVal;
+        }
+
         var data = request.Data ?? new NotificationData();
 
         // Merge top-level convenience fields into Data sub-object
@@ -53,8 +91,8 @@ public class NotifyService
             data.Tag = request.Tag;
         if (string.IsNullOrEmpty(data.Group) && !string.IsNullOrEmpty(request.Group))
             data.Group = request.Group;
-        if (data.ClickAction == NotificationData.NoAction && !string.IsNullOrEmpty(request.ClickAction))
-            data.ClickAction = request.ClickAction;
+        if (data.ClickAction == NotificationData.NoAction && !string.IsNullOrEmpty(clickUrl))
+            data.ClickAction = clickUrl;
         if (data.Duration == 0 && request.Duration > 0)
             data.Duration = request.Duration;
         if (request.Persistent && !data.Sticky)
@@ -73,10 +111,10 @@ public class NotifyService
             Details = request.Details,
             Checkbox = request.Checkbox,
             MessageBoxType = request.MessageBoxType,
-            MessageBoxIcon = request.MessageBoxIcon,
+            MessageBoxIcon = iconVal,
             Timeout = request.Timeout,
             Classic = request.Classic,
-            Callback = request.Callback,
+            Callback = clickUrl,
             Flash = request.Flash,
             Ding = request.Ding,
             UseXSOverlay = useXSOverlay,
@@ -86,7 +124,8 @@ public class NotifyService
             Priority = request.Priority,
             Tag = request.Tag ?? data.Tag,
             Group = request.Group ?? data.Group,
-            ClickAction = request.ClickAction ?? (data.ClickAction != NotificationData.NoAction ? data.ClickAction : null)
+            ClickAction = clickUrl ?? (data.ClickAction != NotificationData.NoAction ? data.ClickAction : null),
+            Image = request.Image ?? data.Image
         };
     }
 
@@ -111,6 +150,19 @@ public class NotifyService
                 payload.Data.Duration = payload.Timeout / 1000;
             if (payload.Persistent && !payload.Data.Sticky)
                 payload.Data.Sticky = true;
+
+            // Unify timeout/duration back-propagation
+            if (payload.Timeout == 0 && payload.Data.Duration > 0)
+                payload.Timeout = payload.Data.Duration * 1000;
+
+            // Unify callback/click_action back-propagation
+            var unifiedClickUrl = payload.ClickAction ?? payload.Callback ?? (payload.Data.ClickAction != NotificationData.NoAction ? payload.Data.ClickAction : null);
+            if (!string.IsNullOrEmpty(unifiedClickUrl))
+            {
+                payload.ClickAction = unifiedClickUrl;
+                payload.Callback = unifiedClickUrl;
+                payload.Data.ClickAction = unifiedClickUrl;
+            }
 
             // 1. If Tray App is connected over authed Named Pipe IPC, delegate everything to it!
             if (IpcServerService.IsTrayConnected)

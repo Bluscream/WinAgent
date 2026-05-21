@@ -145,6 +145,40 @@ public class TrayIpcClient
                                         var payload = JsonSerializer.Deserialize<ToastPayload>(msg.Payload ?? "{}");
                                         if (payload != null)
                                         {
+                                            if (payload.Data == null) payload.Data = new NotificationData();
+
+                                            // Unify timeout & duration
+                                            if (payload.Data.Duration == 0 && payload.Timeout > 0)
+                                                payload.Data.Duration = payload.Timeout / 1000;
+                                            else if (payload.Timeout == 0 && payload.Data.Duration > 0)
+                                                payload.Timeout = payload.Data.Duration * 1000;
+
+                                            // Unify click action & callback
+                                            var clickUrl = payload.ClickAction ?? payload.Callback ?? (payload.Data.ClickAction != NotificationData.NoAction ? payload.Data.ClickAction : null);
+                                            if (!string.IsNullOrEmpty(clickUrl))
+                                            {
+                                                payload.ClickAction = clickUrl;
+                                                payload.Callback = clickUrl;
+                                                payload.Data.ClickAction = clickUrl;
+                                            }
+
+                                            // Ensure top-level and Data-level tag/group are in sync
+                                            if (string.IsNullOrEmpty(payload.Data.Tag) && !string.IsNullOrEmpty(payload.Tag))
+                                                payload.Data.Tag = payload.Tag;
+                                            if (string.IsNullOrEmpty(payload.Tag) && !string.IsNullOrEmpty(payload.Data.Tag))
+                                                payload.Tag = payload.Data.Tag;
+
+                                            if (string.IsNullOrEmpty(payload.Data.Group) && !string.IsNullOrEmpty(payload.Group))
+                                                payload.Data.Group = payload.Group;
+                                            if (string.IsNullOrEmpty(payload.Group) && !string.IsNullOrEmpty(payload.Data.Group))
+                                                payload.Group = payload.Data.Group;
+
+                                            // Ensure top-level and Data-level image are in sync
+                                            if (string.IsNullOrEmpty(payload.Data.Image) && !string.IsNullOrEmpty(payload.Image))
+                                                payload.Data.Image = payload.Image;
+                                            if (string.IsNullOrEmpty(payload.Image) && !string.IsNullOrEmpty(payload.Data.Image))
+                                                payload.Image = payload.Data.Image;
+
                                             // ── Banner: route through the shared TrayBannerService ──────────
                                             if (payload.UseBanner)
                                             {
@@ -152,11 +186,9 @@ public class TrayIpcClient
                                                     title: payload.Title ?? "WinAgent",
                                                     message: payload.Message ?? "",
                                                     position: payload.BannerPosition ?? "TopLeft",
-                                                    imagePath: payload.Data?.Image,
-                                                    durationSeconds: payload.Data?.Duration > 0
-                                                        ? payload.Data.Duration
-                                                        : (payload.Timeout > 0 ? payload.Timeout / 1000 : 3),
-                                                    callback: payload.Callback ?? payload.ClickAction,
+                                                    imagePath: payload.Image,
+                                                    durationSeconds: payload.Data.Duration > 0 ? payload.Data.Duration : 3,
+                                                    callback: payload.ClickAction,
                                                     priority: payload.Priority,
                                                     ding: payload.Ding
                                                 ).ContinueWith(t =>
@@ -196,8 +228,8 @@ public class TrayIpcClient
                                                             CallbackUrl = payload.Callback ?? "",
                                                             Flash = payload.Flash,
                                                             Ding = payload.Ding,
-                                                            ImagePath = payload.Data?.Image ?? "",
-                                                            Duration = payload.Data?.Duration > 0 ? payload.Data.Duration : (payload.Timeout > 0 ? payload.Timeout / 1000 : 3)
+                                                            ImagePath = payload.Image ?? "",
+                                                            Duration = payload.Data.Duration > 0 ? payload.Data.Duration : 3
                                                         }).Wait();
                                                     }
                                                     catch (Exception ex)
